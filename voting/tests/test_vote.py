@@ -8,19 +8,26 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from voting import services
+from voting import reports, services
 from voting.forms import RomeDateTimeField
 from voting.models import (
     AuditEvent,
+    Choice,
     Election,
+    ElectionDocument,
     ElectionVoter,
     NamedBallot,
+    Question,
+    SecretBallot,
     SubmissionReceipt,
+    VotingCredential,
+    VotingQuorum,
 )
 
 from .support import (
     add_members,
     election_with_motion,
+    electorate_snapshot,
     open_election,
     redeem,
     review,
@@ -31,7 +38,7 @@ from .support import (
 @override_settings(REQUIRE_ADMIN_MFA=False)
 class VotingViewsTests(TestCase):
     def setUp(self):
-        self.actor = staff()
+        self.actor = staff(superadmin=True)
         self.election, self.question, self.options = election_with_motion(self.actor)
         self.voter, self.other = open_election(self.election, add_members(2))
         self.admin = Client()
@@ -40,6 +47,246 @@ class VotingViewsTests(TestCase):
 
     def preview(self, revision, option=None, client=None):
         return review(client or self.client, revision, self.question, option)
+
+    def test_voting_quorum_rounds_up_on_the_frozen_electorate(self):
+        for quorum, minimum in (
+            (VotingQuorum.FREE, 0),
+            (VotingQuorum.THIRD, 7),
+            (VotingQuorum.HALF, 10),
+            (VotingQuorum.TWO_THIRDS, 14),
+        ):
+            with self.subTest(quorum=quorum):
+                at_minimum = reports.participation_quorum(quorum, 20, minimum)
+                self.assertEqual(at_minimum["minimum"], minimum)
+                self.assertTrue(at_minimum["met"])
+                if minimum:
+                    self.assertFalse(
+                        reports.participation_quorum(quorum, 20, minimum - 1)["met"]
+                    )
+        self.assertIsNone(reports.participation_quorum("", 20, 20))
+
+    def test_outcomes_use_question_responses_and_include_abstentions_in_majority(self):
+        election = self.election
+        election.voting_quorum = VotingQuorum.HALF
+        election.save(update_fields=["voting_quorum"])
+        extra = ElectionVoter.objects.bulk_create(
+            ElectionVoter(
+                election=election,
+                external_id=f"Q-{i}",
+                first_name="Socio",
+                last_name=f"Esempio {i}",
+            )
+            for i in range(5)
+        )
+        rejected = election.questions.create(
+            text="Mozione a metà", kind=Question.Kind.MOTION
+        )
+        omitted = election.questions.create(
+            text="Mozione con quorum proprio",
+            kind=Question.Kind.MOTION,
+            voting_quorum=VotingQuorum.TWO_THIRDS,
+        )
+        options = [
+            [
+                Choice.objects.create(question=question, text=label)
+                for label in ("Favorevole", "Contrario", "Astenuto")
+            ]
+            for question in (rejected, omitted)
+        ]
+        for index, voter in enumerate((self.voter, self.other, *extra[:2])):
+            answers = {
+                str(self.question.pk): [self.options[0 if index < 3 else 2].pk],
+                str(rejected.pk): [options[0][(0, 0, 1, 2)[index]].pk],
+            }
+            if index < 3:
+                answers[str(omitted.pk)] = [options[1][0].pk]
+            NamedBallot.objects.create(voter=voter, answers=answers)
+
+        result = reports.results_with_outcomes(election)
+        self.assertEqual((result["eligible"], result["total"]), (7, 4))
+        self.assertEqual(result["quorum"]["minimum"], 4)
+        self.assertTrue(result["quorum"]["met"])
+        self.assertEqual(
+            [row["outcome_label"] for row in result["rows"]],
+            ["Approvata", "Respinta", "Quorum del quesito non raggiunto"],
+        )
+        self.assertEqual(result["rows"][1]["approval_minimum"], 3)
+        self.assertEqual(result["rows"][2]["quorum"]["counted"], 3)
+
+        election.voting_quorum = VotingQuorum.TWO_THIRDS
+        failed = reports.results_with_outcomes(election)
+        self.assertTrue(failed["quorum_failed"])
+        self.assertEqual(failed["quorum"]["minimum"], 5)
+        self.assertTrue(all(row["outcome"] == "unavailable" for row in failed["rows"]))
+
+    def test_delete_published_requires_staff_published_status_and_confirmation(self):
+        pk = self.election.pk
+        details = reverse("voting:detail", args=[pk])
+        remove = reverse("voting:transition", args=[pk, "elimina-pubblicata"])
+        for status in Election.Status:
+            if status == Election.Status.TALLIED:
+                continue
+            with self.subTest(status=status):
+                Election.objects.filter(pk=pk).update(status=status)
+                self.assertNotContains(self.admin.get(details), "Elimina consultazione")
+                self.assertEqual(self.admin.get(remove).status_code, 404)
+                self.assertEqual(
+                    self.admin.post(remove, {"confirm": "yes"}).status_code, 404
+                )
+        Election.objects.filter(pk=pk).update(status=Election.Status.TALLIED)
+        regular = get_user_model().objects.create(username="socio-non-staff")
+        self.client.force_login(regular)
+        self.assertEqual(self.client.post(remove, {"confirm": "yes"}).status_code, 403)
+        self.assertContains(self.admin.get(details), "Elimina consultazione")
+        self.assertContains(
+            self.admin.get(remove), "Confermo l’eliminazione definitiva"
+        )
+        self.assertContains(self.admin.post(remove), "Conferma l’operazione")
+        self.assertTrue(Election.objects.filter(pk=pk).exists())
+        self.assertFalse(
+            AuditEvent.objects.filter(action="eliminazione_consultazione").exists()
+        )
+
+    def test_delete_published_removes_only_the_selected_election_and_its_records(self):
+        for mode in Election.Mode:
+            with self.subTest(mode=mode):
+                election, question, options = election_with_motion(
+                    self.actor, title=f"Consultazione di prova {mode}"
+                )
+                election.mode = mode
+                election.save(update_fields=["mode"])
+                (voter,) = open_election(election, [self.voter.member])
+                ElectionDocument.objects.create(
+                    election=election, name="Nota sintetica.pdf", content=b"%PDF-1.4"
+                )
+                token = services.personal_url(voter).split("#", 1)[1]
+                redeem(self.client, voter)
+                payload = review(self.client, 0, question, options[0]).context[
+                    "payload"
+                ]
+                self.assertEqual(
+                    self.client.post(self.submit_url, {"payload": payload}).status_code,
+                    200,
+                )
+                for action in ("chiudi", "scrutina"):
+                    url = reverse("voting:transition", args=[election.pk, action])
+                    self.assertEqual(
+                        self.admin.post(url, {"confirm": "yes"}).status_code, 302
+                    )
+                self.assertEqual(election.campaigns.get().deliveries.count(), 1)
+                remove = reverse(
+                    "voting:transition", args=[election.pk, "elimina-pubblicata"]
+                )
+                self.assertRedirects(
+                    self.admin.post(remove, {"confirm": "yes"}),
+                    reverse("voting:dashboard"),
+                )
+                self.assertEqual(self.admin.get(remove).status_code, 404)
+                self.assertEqual(
+                    self.client.post(
+                        reverse("voting:access"), {"token": token}
+                    ).status_code,
+                    404,
+                )
+                self.assertFalse(Election.objects.filter(pk=election.pk).exists())
+                self.assertFalse(ElectionVoter.objects.filter(pk=voter.pk).exists())
+                self.assertFalse(
+                    VotingCredential.objects.filter(voter_id=voter.pk).exists()
+                )
+                self.assertFalse(
+                    SubmissionReceipt.objects.filter(voter_id=voter.pk).exists()
+                )
+                self.assertFalse(NamedBallot.objects.filter(voter_id=voter.pk).exists())
+                self.assertFalse(
+                    SecretBallot.objects.filter(election=election).exists()
+                )
+                self.assertFalse(
+                    ElectionDocument.objects.filter(election=election).exists()
+                )
+                self.assertFalse(election.campaigns.exists())
+                self.assertTrue(
+                    AuditEvent.objects.filter(
+                        action="eliminazione_consultazione",
+                        actor=self.actor,
+                        details={"consultazione": election.pk},
+                    ).exists()
+                )
+        self.assertTrue(ElectionVoter.objects.filter(pk=self.voter.pk).exists())
+        self.assertTrue(VotingCredential.objects.filter(voter=self.voter).exists())
+
+    def test_motion_can_require_a_response_without_counting_omissions_on_other_questions(
+        self,
+    ):
+        election = Election.objects.create(
+            title="Consultazione con due mozioni",
+            created_by=self.actor,
+            closes_at=timezone.now() + timedelta(days=1),
+        )
+        add_question = reverse("voting:question_add", args=[election.pk])
+        for text, kind in (
+            ("Approvare la prima mozione?", Question.Kind.MOTION_REQUIRED),
+            ("Approvare la seconda mozione?", Question.Kind.MOTION),
+        ):
+            response = self.admin.post(
+                add_question, {"text": text, "kind": kind, "max_choices": 2}
+            )
+            self.assertEqual(response.status_code, 302)
+        required, optional = election.questions.all()
+        for question in (required, optional):
+            self.assertEqual(question.max_choices, 1)
+            self.assertEqual(
+                list(question.choices.values_list("text", flat=True)),
+                ["Favorevole", "Contrario", "Astenuto"],
+            )
+
+        first, second = open_election(election, [self.voter.member, self.other.member])
+        redeem(self.client, first)
+        ballot = reverse("voting:ballot")
+        page = self.client.get(ballot)
+        self.assertNotContains(page, f'name="q{required.pk}" value=""')
+        self.assertContains(page, f'name="q{optional.pk}" value=""')
+        for data in ({}, {f"q{required.pk}": ""}):
+            invalid = self.client.post(ballot, {"revision": 0, **data})
+            self.assertContains(
+                invalid, "Seleziona una risposta per il quesito", status_code=400
+            )
+        with self.assertRaises(ValidationError):
+            services.record_ballot(
+                first.pk,
+                election.pk,
+                first.credential.version,
+                uuid4(),
+                0,
+                {str(optional.pk): [optional.choices.first().pk]},
+            )
+
+        other = Client()
+        redeem(other, second)
+        for client, optional_answer in (
+            (self.client, ""),
+            (other, optional.choices.get(text="Astenuto").pk),
+        ):
+            preview = client.post(
+                ballot,
+                {
+                    "revision": 0,
+                    f"q{required.pk}": required.choices.first().pk,
+                    f"q{optional.pk}": optional_answer,
+                },
+            )
+            self.assertEqual(
+                client.post(
+                    self.submit_url, {"payload": preview.context["payload"]}
+                ).status_code,
+                200,
+            )
+        result = reports.tally(election)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(
+            [(row["answered"], row["omitted"]) for row in result["rows"]],
+            [(2, 0), (1, 1)],
+        )
+        self.assertEqual(dict(result["rows"][1]["choices"])["Astenuto"], 1)
 
     def test_redeeming_and_previewing_never_records_or_consumes_access(self):
         self.assertEqual(self.client.get(reverse("voting:access")).status_code, 200)
@@ -55,7 +302,7 @@ class VotingViewsTests(TestCase):
             ElectionVoter.objects.create(
                 election=self.election,
                 member=self.voter.member,
-                **services.electorate_snapshot(self.voter.member),
+                **electorate_snapshot(self.voter.member),
             )
 
     def test_whole_ballot_replacement_and_retries(self):
@@ -147,6 +394,68 @@ class VotingViewsTests(TestCase):
         audit = AuditEvent.objects.get(action="revoca_link")
         self.assertEqual(audit.details["motivo"], "esposizione")
 
+    def test_voter_detail_opens_from_name_and_requires_staff(self):
+        detail_url = reverse(
+            "voting:voter_detail", args=[self.election.pk, self.voter.pk]
+        )
+        voter_list = self.admin.get(reverse("voting:voters", args=[self.election.pk]))
+        self.assertContains(voter_list, f'href="{detail_url}"')
+        detail = self.admin.get(detail_url)
+        self.assertContains(detail, "Copia link personale")
+        self.assertContains(detail, "aggiungi un cellulare valido")
+        self.assertNotContains(detail, services.personal_url(self.voter))
+        self.assertIn("/account/accesso/", self.client.get(detail_url).url)
+        other_election, _, _ = election_with_motion(
+            self.actor, "Consultazione distinta"
+        )
+        self.assertEqual(
+            self.admin.get(
+                reverse("voting:voter_detail", args=[other_election.pk, self.voter.pk])
+            ).status_code,
+            404,
+        )
+
+    def test_whatsapp_action_copies_current_link_and_opens_phone_only_url(self):
+        self.voter.phone = "+1 (202) 555-0101"
+        self.voter.save(update_fields=["phone"])
+        args = [self.election.pk, self.voter.pk]
+        detail_url = reverse("voting:voter_detail", args=args)
+        copy_url = reverse("voting:copy_link", args=args)
+        self.assertContains(
+            self.admin.get(detail_url), "Copia messaggio e apri WhatsApp Web"
+        )
+        response = self.admin.post(copy_url, {"whatsapp_phone": "12025550101"})
+        self.assertEqual(
+            response.json(),
+            {
+                "url": services.personal_url(self.voter),
+                "whatsapp_url": "https://web.whatsapp.com/send?phone=12025550101",
+            },
+        )
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        self.assertEqual(
+            AuditEvent.objects.filter(action="copia_link", voter=self.voter).count(), 1
+        )
+
+    def test_whatsapp_rejects_missing_or_changed_phone_and_ended_election(self):
+        args = [self.election.pk, self.voter.pk]
+        copy_url = reverse("voting:copy_link", args=args)
+        data = {"whatsapp_phone": "12025550101"}
+        self.assertEqual(self.admin.post(copy_url, data).status_code, 409)
+        self.voter.phone = "001 202-555-0102"
+        self.voter.save(update_fields=["phone"])
+        self.assertEqual(self.admin.post(copy_url, data).status_code, 409)
+        Election.objects.filter(pk=self.election.pk).update(
+            status=Election.Status.CLOSED
+        )
+        data["whatsapp_phone"] = "12025550102"
+        self.assertEqual(self.admin.post(copy_url, data).status_code, 409)
+        self.assertNotContains(
+            self.admin.get(reverse("voting:voter_detail", args=args)),
+            "Copia messaggio e apri WhatsApp Web",
+        )
+        self.assertFalse(AuditEvent.objects.filter(action="copia_link").exists())
+
     def test_object_access_and_reports(self):
         other_election, _, _ = election_with_motion(
             self.actor, "Consultazione distinta"
@@ -172,19 +481,38 @@ class VotingViewsTests(TestCase):
             self.client.post(self.submit_url, {"payload": payload}).status_code, 200
         )
         pending = self.preview(1, self.options[2]).context["payload"]
-        for action in ("chiudi", "scrutina"):
-            url = reverse("voting:transition", args=[self.election.pk, action])
-            self.assertEqual(self.admin.post(url, {"confirm": "yes"}).status_code, 302)
+        close = reverse("voting:transition", args=[self.election.pk, "chiudi"])
+        self.assertEqual(self.admin.post(close, {"confirm": "yes"}).status_code, 302)
+        ballot = reverse("voting:ballot")
+        waiting = self.client.get(ballot)
+        self.assertContains(waiting, "Lo scrutinio è in attesa di pubblicazione.")
+        self.assertNotContains(waiting, "Favorevole")
+        publish = reverse("voting:transition", args=[self.election.pk, "scrutina"])
+        self.assertEqual(self.admin.post(publish, {"confirm": "yes"}).status_code, 302)
         self.assertEqual(
             self.client.post(self.submit_url, {"payload": pending}).status_code, 409
         )
-        self.assertContains(
-            self.client.get(reverse("voting:ballot")), "Votazione chiusa"
-        )
+        voter = Client()
+        self.assertEqual(redeem(voter, self.voter).status_code, 200)
+        personal = voter.get(ballot)
+        self.assertContains(personal, "Votazione chiusa")
+        self.assertContains(personal, "Favorevole")
+        self.assertNotContains(personal, self.voter.external_id)
+        self.assertNotContains(personal, "Report PDF")
+        absent = Client()
+        redeem(absent, self.other)
+        self.assertNotContains(absent.get(ballot), "Favorevole")
+        self.assertEqual(Client().get(ballot).status_code, 403)
         self.assertContains(
             self.client.post(self.submit_url, {"payload": payload}), "Scheda corrente"
         )
         self.assertContains(self.admin.get(results_url), "Favorevole")
+        nominative = self.admin.get(
+            reverse("voting:voter_detail", args=[self.election.pk, self.voter.pk])
+        )
+        self.assertContains(nominative, "Scelte della scheda nominativa")
+        self.assertContains(nominative, self.question.text)
+        self.assertContains(nominative, self.options[0].text)
         token = services.personal_url(self.voter).split("#", 1)[1].encode()
         for kind in ("risultati-csv", "partecipazione-csv", "report-pdf"):
             result = self.admin.get(
@@ -200,20 +528,31 @@ class VotingViewsTests(TestCase):
             if kind == "report-pdf":
                 self.assertTrue(data.startswith(b"%PDF-"))
 
-    def test_secret_refused_by_form_and_database(self):
+    def test_replacement_setting_is_saved_in_both_voting_modes(self):
         new_url = reverse("voting:create")
-        response = self.admin.post(
-            new_url,
-            {
-                "title": "Titolo",
-                "mode": "secret",
-                "closes_at": "2035-01-01T10:00",
-            },
+        form = self.admin.get(new_url)
+        self.assertContains(form, "Modalità di voto")
+        self.assertContains(
+            form,
+            '<option value="secret">Segreto</option>',
+            html=True,
         )
-        self.assertContains(response, "Voto segreto")
-        self.assertFalse(Election.objects.filter(title="Titolo").exists())
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            Election.objects.filter(pk=self.election.pk).update(mode="secret")
+        self.assertNotContains(form, "Voto segreto · In preparazione")
+        for mode in Election.Mode:
+            for replacement in (True, False):
+                with self.subTest(mode=mode, replacement=replacement):
+                    title = f"Colloquio {mode} {replacement}"
+                    fields = {
+                        "title": title,
+                        "mode": mode,
+                        "closes_at": "2035-01-01T10:00",
+                    }
+                    if replacement:
+                        fields["allow_replacement"] = "on"
+                    self.assertEqual(self.admin.post(new_url, fields).status_code, 302)
+                    election = Election.objects.get(title=title)
+                    self.assertEqual(election.mode, mode)
+                    self.assertEqual(election.allow_replacement, replacement)
 
     def test_deadline_without_scheduler_protects_previous_ballot(self):
         redeem(self.client, self.voter)

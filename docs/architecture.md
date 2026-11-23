@@ -3,8 +3,8 @@
 AIM Voto è un monolite Django con template HTML e JavaScript locale. Gunicorn serve il web e WhiteNoise gli asset. Un processo Django separato elabora la coda e aggiorna le consultazioni programmate. Entrambi condividono PostgreSQL. In sviluppo il worker apre connessioni SMTP solo verso Mailpit o loopback e ammette mittente e destinatari dimostrativi `@example.invalid`. Il browser usa il sito Django e, nel percorso di voto, richiede JavaScript per scambiare il link personale con una sessione.
 
 - `config` gestisce configurazione, accesso staff, MFA, limiti di richiesta e avvio.
-- `members` valida e importa l'anagrafica. L'anteprima appartiene all'operatore che l'ha caricata. Alla conferma una transazione serializza le importazioni e verifica l'impronta dell'anteprima; una variazione dei dati richiede una nuova conferma.
-- `voting` gestisce consultazioni, credenziali, voto nominativo, partecipazione e scrutinio.
+- `members` valida i file e importa gli aventi diritto nella bozza selezionata. L'anteprima appartiene all'operatore e alla consultazione. La conferma usa lo stesso lock della consultazione usato per inserimento manuale e apertura. Una variazione dei dati rilevanti richiede una nuova conferma.
+- `voting` gestisce consultazioni, credenziali, voto palese e segreto, partecipazione e scrutinio.
 - `mailings` compone le anteprime, congela la selezione confermata e gestisce gli invii. PostgreSQL è anche la coda persistente, sufficiente per il primo rilascio e monitorabile con gli strumenti del database.
 
 ## Stati e scadenze
@@ -23,6 +23,16 @@ Per una nuova registrazione, il punto di accettazione è la lettura di `clock_ti
 
 Le campagne conservano il modello e le posizioni verificate, comprese le esclusioni. Conferma e worker ricontrollano la platea, lo stato di voto per i solleciti, lo stato della consultazione, l'intervallo e il recapito. Il worker acquisisce una posizione, controlla la credenziale attiva e registra il passaggio a “In invio” in PostgreSQL. Dopo il commit comunica con SMTP. Un'altra transazione registra l'esito. Lo stato “In invio” abbandonato diventa “Esito incerto”. Gli errori temporanei con rifiuto certo possono tornare in coda con attesa crescente. Lo stato SMTP ambiguo richiede verifica operativa. Tra commit di acquisizione e risposta SMTP esiste una finestra in cui una chiusura, una revoca o un voto possono intervenire mentre il messaggio è già in lavorazione.
 
-## Decisione sul voto segreto
+## Presenze e deleghe
 
-Il confine del motore nominativo è il percorso di acquisizione e scrutinio in `voting.services.record_ballot`, `NamedBallot` e `voting.reports`. Per il voto segreto adottiamo **Helios come prima opzione da valutare** per un motore separato e verificabile. L'anagrafica e la configurazione della platea potranno orchestrare il motore, mentre schede, pubblicazione delle prove e scrutinio dovranno seguire il suo protocollo. L'integrazione va preceduta da una prova isolata che controlli revisione del voto, configurazione dei fiduciari, verifiche degli elettori, correlazione identità–scheda, versioni mantenute e modello di accesso, compreso il rischio introdotto dal recupero dei link. Il voto segreto resta disabilitato nella UI e nel database finché il percorso integrato non è stato valutato e verificato. [Repository e documentazione ufficiale di Helios](https://github.com/benadida/helios-server)
+La conferma della presenza è esplicita e genera un registro autonomo. Richieste, approvazioni e revoche di delega condividono il lock della consultazione con la registrazione del voto. L’approvazione controlla appartenenza alla platea, assenza di una scheda diretta, assenza di catene di deleghe e numero di deleghe già assegnate al delegato. La soglia applicata è tre deleghe fino a 500 aventi diritto nella platea congelata e cinque oltre 500.
+
+La sessione del delegato può confermare la scheda della posizione rappresentata solo con una delega approvata. La chiave univoca della scheda resta la posizione del delegante. Lo scrutinio usa quindi le stesse regole di conteggio del voto diretto. Il payload di conferma firmato identifica la delega e la versione della credenziale del delegato. La scheda nominativa conserva la posizione che ha registrato il voto per delega.
+
+## Voto segreto
+
+Il server salva in una transazione la ricevuta di partecipazione e la scheda cifrata. La ricevuta identifica la posizione elettorale e, per una delega, chi ha votato per suo conto. La scheda cifrata contiene un UUID e come unico riferimento la consultazione. La sua lunghezza è uniforme per tutte le schede della stessa votazione. La ricevuta e l’audit sono indipendenti dalle preferenze.
+
+Quando la sostituzione è attiva, il server calcola l’UUID di ogni revisione con HMAC a chiave applicativa. Lo stesso lock della conferma protegge la sostituzione del cifrato precedente e l’inserimento della nuova ricevuta. L’affluenza usa l’ultima ricevuta per posizione, lo scrutinio usa la scheda cifrata corrente.
+
+Dopo la chiusura, lo scrutinio decifra le schede in memoria e confronta il numero di schede e quello delle deleghe esercitate con le ricevute prima di pubblicare. I report del voto segreto usano il totale per opzione e l’elenco degli aventi diritto. Nei report del voto palese le preferenze della scheda corrente sono attribuite all’elettore rappresentato, con il nome del delegato quando presente.

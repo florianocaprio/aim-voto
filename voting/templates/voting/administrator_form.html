@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{% if account %}Modifica accesso{% else %}Nuovo amministratore{% endif %}{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:administrators' %}">Amministratori</a>
+<h1>{% if account %}Modifica accesso di {{ account.username }}{% else %}Nuovo amministratore{% endif %}</h1>
+<section class="card narrow stack">
+  <form method="post" class="stack" data-administrator-scope>
+    {% csrf_token %}
+    {% if account_form %}{{ account_form.as_div }}{% endif %}
+    {{ scope_form.non_field_errors }}
+    <div>{{ scope_form.scope.as_field_group }}</div>
+    <div class="options" data-assigned-elections>
+      {{ scope_form.elections.as_field_group }}
+    </div>
+    <div><button class="button">Salva</button></div>
+  </form>
+</section>
+{% endblock %}

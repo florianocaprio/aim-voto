@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Importazione completata · AIM Voto{% endblock %}
 {% block content %}
+<a class="back" href="{% url 'voting:voters' election.pk %}">Aventi diritto · {{ election.title }}</a>
 <header class="page-heading">
     <h1>Importazione completata</h1>
     <p>Importazione registrata il {{ batch.completed_at|date:"j F Y, H:i T" }}.</p>
@@ -9,5 +10,8 @@
     <h2 id="summary-title">Riepilogo</h2>
     {% include "members/summary.html" %}
 </section>
-<a class="button secondary" href="{% url 'members:import' %}">Torna all’importazione</a>
+<div class="actions lifecycle">
+    <a class="button" href="{% url 'voting:voters' election.pk %}">Vedi gli aventi diritto</a>
+    <a class="button secondary" href="{% url 'members:import' election.pk %}">Importa un altro file</a>
+</div>
 {% endblock %}

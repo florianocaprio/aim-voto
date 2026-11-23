@@ -15,10 +15,9 @@ from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from mailings.models import DispatchSchedule
+from mailings.models import DispatchSchedule, MailKind
 from mailings.worker import process_next
 from members.importing import IMPORT_FIELDS
-from members.models import Member
 from voting.models import Election, NamedBallot, Question
 
 MAILPIT_API_URL = os.environ.get("MAILPIT_API_URL", "").rstrip("/")
@@ -38,18 +37,18 @@ class MailpitFlowTests(TransactionTestCase):
             "::1",
         }
         admin = get_user_model().objects.create(
-            username="operatore-end-to-end", is_staff=True
+            username="operatore-end-to-end", is_staff=True, is_superuser=True
         )
         self.client.force_login(admin)
         run_id = uuid4().hex[:12]
         self.invite_subject = f"Inviti collaudo {run_id}"
         self.reminder_subject = f"Sollecito collaudo {run_id}"
 
-    def import_members(self):
-        source = self.client.get(reverse("members:demo-csv"))
+    def import_electorate(self, election):
+        source = self.client.get(reverse("members:demo-csv", args=[election.pk]))
         self.assertEqual(source.status_code, 200)
         upload = self.client.post(
-            reverse("members:import"),
+            reverse("members:import", args=[election.pk]),
             {
                 "file": SimpleUploadedFile(
                     "soci-demo.csv", source.content, content_type="text/csv"
@@ -73,7 +72,7 @@ class MailpitFlowTests(TransactionTestCase):
             ).status_code,
             302,
         )
-        self.assertEqual(Member.objects.count(), 3)
+        self.assertEqual(election.voters.count(), 3)
 
     def open_election(self):
         tomorrow = timezone.localtime().replace(hour=12, minute=0) + timedelta(days=1)
@@ -88,12 +87,7 @@ class MailpitFlowTests(TransactionTestCase):
         )
         self.assertEqual(created.status_code, 302)
         election = Election.objects.get()
-        self.assertEqual(
-            self.client.post(
-                reverse("voting:electorate", args=(election.pk,)), {"confirm": "on"}
-            ).status_code,
-            302,
-        )
+        self.import_electorate(election)
         self.assertEqual(
             self.client.post(
                 reverse("voting:question_add", args=(election.pk,)),
@@ -181,7 +175,6 @@ class MailpitFlowTests(TransactionTestCase):
         self.assertEqual(submitted.context["receipt"].revision, revision + 1)
 
     def test_three_voters_replacement_and_one_mass_reminder(self):
-        self.import_members()
         election = self.open_election()
         voters = list(election.voters.order_by("external_id"))
         question = election.questions.get()
@@ -225,7 +218,44 @@ class MailpitFlowTests(TransactionTestCase):
         self.assertTrue(copy.json()["url"] == links[voters[2].email])
 
         self.transition(election, "chiudi")
+        self.assertFalse(election.campaigns.filter(kind=MailKind.RESULTS).exists())
         self.transition(election, "scrutina")
+        campaign = election.campaigns.get(kind=MailKind.RESULTS)
+        self.assertEqual(campaign.deliveries.count(), 3)
+        self.assertContains(
+            self.client.post(
+                reverse("voting:transition", args=(election.pk, "scrutina")),
+                {"confirm": "yes"},
+            ),
+            "Operazione non disponibile nello stato attuale",
+        )
+        sent_before = {mail["ID"] for mail in self.mailpit_messages(campaign.subject)}
+        for _ in voters:
+            DispatchSchedule.objects.update(next_at=timezone.now())
+            self.assertTrue(process_next())
+        emails = [
+            mail
+            for mail in self.mailpit_messages(campaign.subject)
+            if mail["ID"] not in sent_before
+        ]
+        self.assertEqual(len(emails), 3)
+        self.assertEqual({mail["To"][0]["Address"] for mail in emails}, set(links))
+        for email in emails:
+            self.assertFalse(email["Cc"])
+            self.assertFalse(email["Bcc"])
+            with urlopen(
+                f"{MAILPIT_API_URL}/view/{email['ID']}.txt", timeout=5
+            ) as response:
+                body = response.read().decode("utf-8")
+            for line in (
+                "Aventi diritto: 3",
+                "Votanti: 2",
+                "Favorevole: 1",
+                "Contrario: 1",
+                "Astenuto: 0",
+            ):
+                self.assertIn(line, body)
+            self.assertNotIn("/accedi/", body)
         results = self.client.get(reverse("voting:results", args=(election.pk,)))
         self.assertEqual(results.status_code, 200)
         self.assertEqual(results.context["total"], 2)

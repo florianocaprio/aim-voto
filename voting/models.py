@@ -1,14 +1,67 @@
 from typing import ClassVar
+from uuid import uuid4
 
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
+
+MAX_ELECTORATE_SIZE = 2000
+
+
+class VotingQuorum(models.TextChoices):
+    FREE = "free", "Libero (nessuna soglia minima)"
+    THREE_QUARTERS = "3/4", "3/4 degli aventi diritto"
+    TWO_THIRDS = "2/3", "2/3 degli aventi diritto"
+    HALF = "1/2", "1/2 degli aventi diritto"
+    THIRD = "1/3", "1/3 degli aventi diritto"
+
+
+class AssemblyKind(models.TextChoices):
+    ORDINARY = "ordinary", "Ordinaria"
+    EXTRAORDINARY = "extraordinary", "Straordinaria"
+
+
+class Convocation(models.IntegerChoices):
+    FIRST = 1, "Prima convocazione"
+    SECOND = 2, "Seconda convocazione"
+
+
+class DeliberationKind(models.TextChoices):
+    ORDINARY = "ordinary", "Deliberazione ordinaria"
+    STATUTE = "statute", "Modifica statutaria"
+    LEGAL_PERSON = "legal_person", "Acquisto della personalità giuridica"
+    REORGANIZATION = "reorganization", "Trasformazione, fusione o scissione"
+    DISSOLUTION = "dissolution", "Scioglimento e devoluzione del patrimonio"
+    ADVISORY = "advisory", "Consultazione non deliberativa"
+    CUSTOM = "custom", "Quorum personalizzato"
+
+
+class ConstitutiveQuorum(models.TextChoices):
+    FREE = "LIBERO", "Libero (nessuna soglia minima)"
+    ABSOLUTE = "MAGGIORANZA_ASSOLUTA", "Più della metà degli aventi diritto"
+    FRACTION = "FRAZIONE_PERSONALIZZATA", "Frazione degli aventi diritto"
+    FIXED = "NUMERO_MINIMO", "Numero minimo di votanti"
+
+
+class DeliberativeMajority(models.TextChoices):
+    VOTES_CAST = "VOTES_CAST_MAJORITY", "Maggioranza dei voti espressi"
+    PRESENT_ABSOLUTE = "PRESENT_ABSOLUTE_MAJORITY", "Maggioranza assoluta dei presenti"
+    QUALIFIED = "QUALIFIED_MAJORITY", "Maggioranza qualificata"
+
+
+class QuorumBasis(models.TextChoices):
+    ELIGIBLE = "eligible", "Aventi diritto"
+    EXPRESSED = "expressed", "Voti validamente espressi (favorevoli e contrari)"
+    PARTICIPANTS = "participants", "Partecipanti aventi diritto al quesito"
+    MEMBERS = "members", "Tutti gli associati"
 
 
 class Election(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Bozza"
         SCHEDULED = "scheduled", "Programmata"
+        DELEGATIONS = "delegations", "Aperta per deleghe"
         OPEN = "open", "Aperta"
         CLOSED = "closed", "Chiusa"
         TALLIED = "tallied", "Scrutinata"
@@ -16,6 +69,7 @@ class Election(models.Model):
 
     class Mode(models.TextChoices):
         NAMED = "named", "Palese (nominativo)"
+        SECRET = "secret", "Segreto"
 
     title = models.CharField(max_length=180)
     description = models.TextField(blank=True, max_length=6000)
@@ -25,9 +79,27 @@ class Election(models.Model):
     )
     opens_at = models.DateTimeField(null=True, blank=True)
     closes_at = models.DateTimeField()
+    delegations_opened_at = models.DateTimeField(null=True, editable=False)
     opened_at = models.DateTimeField(null=True, editable=False)
     ended_at = models.DateTimeField(null=True, editable=False)
     allow_replacement = models.BooleanField(default=True)
+    allow_delegations = models.BooleanField(default=False)
+    require_presence = models.BooleanField(default=False)
+    voting_quorum = models.CharField(max_length=4, choices=VotingQuorum, blank=True)
+    assembly_type = models.CharField(max_length=16, choices=AssemblyKind, blank=True)
+    convocation = models.PositiveSmallIntegerField(choices=Convocation, default=1)
+    total_members = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)], null=True, blank=True
+    )
+    constitutive_override = models.CharField(max_length=14, blank=True)
+    allow_custom_quorum = models.BooleanField(default=False)
+    assembly_snapshot = models.JSONField(null=True, editable=False)
+    minutes_president = models.CharField(max_length=180, blank=True)
+    minutes_secretary = models.CharField(max_length=180, blank=True)
+    minutes_signing_city = models.CharField(max_length=180, blank=True)
+    minutes_signing_date = models.DateField(null=True, blank=True)
+    minutes_agenda = models.TextField(max_length=6000, blank=True)
+    minutes_discussion = models.TextField(max_length=20000, blank=True)
     reminder_interval_hours = models.PositiveSmallIntegerField(default=24)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -37,7 +109,8 @@ class Election(models.Model):
         ordering: ClassVar = ["-created_at", "-pk"]
         constraints: ClassVar = [
             models.CheckConstraint(
-                condition=models.Q(mode="named"), name="election_named_only"
+                condition=models.Q(mode__in=["named", "secret"]),
+                name="election_valid_mode",
             ),
             models.CheckConstraint(
                 condition=models.Q(opens_at__isnull=True)
@@ -49,10 +122,116 @@ class Election(models.Model):
     def __str__(self):
         return self.title
 
+    @property
+    def is_secret(self):
+        return self.mode == self.Mode.SECRET
+
+    def participation_records(self):
+        if self.is_secret:
+            latest = SubmissionReceipt.objects.filter(
+                voter_id=models.OuterRef("voter_id")
+            ).order_by("-revision")
+            return SubmissionReceipt.objects.filter(
+                voter__election=self, pk=models.Subquery(latest.values("pk")[:1])
+            ).annotate(
+                submitted_at=models.F("accepted_at"),
+            )
+        return NamedBallot.objects.filter(voter__election=self)
+
+
+class AssemblyQuorum(models.Model):
+    class Basis(models.TextChoices):
+        PRESENCES = "presences", "Presenze confermate"
+        WITH_PROXY = (
+            "with_proxy",
+            "Presenze confermate e deleganti con scheda acquisita",
+        )
+
+    class Comparison(models.TextChoices):
+        AT_LEAST = "at_least", "Almeno"
+        GREATER = "greater", "Più di"
+
+    election = models.OneToOneField(Election, on_delete=models.CASCADE)
+    basis = models.CharField(max_length=12, choices=Basis)
+    comparison = models.CharField(
+        max_length=8, choices=Comparison, default=Comparison.AT_LEAST
+    )
+    threshold_numerator = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    threshold_denominator = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)], null=True, blank=True
+    )
+    reference = models.CharField(max_length=300, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL
+    )
+
+    class Meta:
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=models.Q(threshold_numerator__gte=1)
+                & (
+                    models.Q(threshold_denominator__isnull=True)
+                    | models.Q(
+                        threshold_denominator__gte=models.F("threshold_numerator")
+                    )
+                ),
+                name="assembly_quorum_valid_threshold",
+            ),
+        ]
+
+    def minimum_count(self, eligible):
+        # A fractional threshold uses integer arithmetic, including at the exact boundary.
+        denominator = self.threshold_denominator or 1
+        scaled = (
+            self.threshold_numerator * eligible
+            if self.threshold_denominator
+            else self.threshold_numerator
+        )
+        if self.comparison == self.Comparison.GREATER:
+            return scaled // denominator + 1
+        return (scaled + denominator - 1) // denominator
+
+
+class ElectionAdministrator(models.Model):
+    """A staff account limited to its assigned elections."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="election_administration",
+    )
+    elections = models.ManyToManyField(Election, blank=True, related_name="+")
+
+
+class AssemblyVerification(models.Model):
+    election = models.ForeignKey(
+        Election, on_delete=models.CASCADE, related_name="assembly_verifications"
+    )
+    revision = models.PositiveIntegerField()
+    president = models.CharField(max_length=180)
+    reference = models.CharField(max_length=300)
+    correction_reason = models.CharField(max_length=500, blank=True)
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL
+    )
+    verified_at = models.DateTimeField()
+    participation = models.JSONField()
+    result = models.JSONField()
+
+    class Meta:
+        ordering = ("-revision",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("election", "revision"), name="assembly_verification_revision"
+            ),
+        )
+
 
 class Question(models.Model):
     class Kind(models.TextChoices):
-        MOTION = "motion", "Favorevole / Contrario / Astenuto"
+        MOTION_REQUIRED = "motion_req", "Favorevole / Contrario / Astenuto"
+        MOTION = "motion", "Favorevole / Contrario / Astenuto / Senza risposta"
         SINGLE = "single", "Scelta singola"
         MULTIPLE = "multiple", "Scelta multipla"
         CANDIDATES = "candidates", "Candidati"
@@ -63,9 +242,27 @@ class Question(models.Model):
     text = models.CharField(max_length=500)
     kind = models.CharField(max_length=16, choices=Kind)
     max_choices = models.PositiveSmallIntegerField(default=1)
+    voting_quorum = models.CharField(max_length=4, choices=VotingQuorum, blank=True)
+    deliberation_type = models.CharField(
+        max_length=16, choices=DeliberationKind, blank=True
+    )
+    constitutive_quorum = models.CharField(
+        max_length=24, choices=ConstitutiveQuorum, blank=True
+    )
+    constitutive_fraction = models.CharField(max_length=14, blank=True)
+    minimum_voters = models.PositiveSmallIntegerField(null=True, blank=True)
+    deliberative_majority = models.CharField(
+        max_length=28, choices=DeliberativeMajority, blank=True
+    )
+    majority_override = models.CharField(max_length=14, blank=True)
+    majority_basis = models.CharField(max_length=12, choices=QuorumBasis, blank=True)
 
     class Meta:
         ordering: ClassVar = ["pk"]
+
+    @property
+    def requires_answer(self):
+        return self.kind == self.Kind.MOTION_REQUIRED
 
 
 class Choice(models.Model):
@@ -90,19 +287,24 @@ class ElectionVoter(models.Model):
     election = models.ForeignKey(
         Election, on_delete=models.CASCADE, related_name="voters"
     )
-    member = models.ForeignKey("members.Member", on_delete=models.PROTECT)
+    member = models.ForeignKey(
+        "members.Member", on_delete=models.PROTECT, null=True, blank=True
+    )
     external_id = models.CharField(max_length=64)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=32, blank=True)
-    section = models.CharField(max_length=100)
+    section = models.CharField(max_length=100, blank=True)
 
     class Meta:
         ordering: ClassVar = ["last_name", "first_name", "pk"]
         constraints: ClassVar = [
             models.UniqueConstraint(
                 fields=["election", "member"], name="one_place_per_member"
+            ),
+            models.UniqueConstraint(
+                fields=["election", "external_id"], name="one_matricola_per_election"
             ),
         ]
 
@@ -123,6 +325,67 @@ class NamedBallot(models.Model):
     answers = models.JSONField(default=dict)
     revision = models.PositiveIntegerField(default=1)
     submitted_at = models.DateTimeField(default=timezone.now)
+    cast_by = models.ForeignKey(
+        ElectionVoter, null=True, on_delete=models.PROTECT, related_name="proxy_ballots"
+    )
+
+
+class SecretBallot(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    election = models.ForeignKey(Election, on_delete=models.PROTECT)
+    ciphertext = models.BinaryField(editable=False)
+
+
+class VoterPresence(models.Model):
+    class Source(models.TextChoices):
+        EXPLICIT = "explicit", "Conferma esplicita"
+        BALLOT = "ballot", "Scheda acquisita"
+
+    voter = models.OneToOneField(
+        ElectionVoter, on_delete=models.CASCADE, related_name="presence"
+    )
+    confirmed_at = models.DateTimeField()
+    source = models.CharField(max_length=8, choices=Source, default=Source.EXPLICIT)
+
+
+class Delegation(models.Model):
+    class State(models.TextChoices):
+        PENDING = "pending", "Da verificare"
+        APPROVED = "approved", "Approvata"
+        REJECTED = "rejected", "Rifiutata"
+        REVOKED = "revoked", "Revocata"
+
+    grantor = models.ForeignKey(
+        ElectionVoter, on_delete=models.CASCADE, related_name="delegations_given"
+    )
+    delegate = models.ForeignKey(
+        ElectionVoter, on_delete=models.CASCADE, related_name="delegations_received"
+    )
+    state = models.CharField(max_length=8, choices=State, default=State.PENDING)
+    requested_at = models.DateTimeField()
+
+    class Meta:
+        ordering: ClassVar = ["-requested_at", "-pk"]
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=~models.Q(grantor=models.F("delegate")),
+                name="delegation_distinct_voters",
+            ),
+            models.UniqueConstraint(
+                fields=["grantor"],
+                condition=models.Q(state__in=["pending", "approved"]),
+                name="delegation_one_active_per_grantor",
+            ),
+        ]
+
+
+class DelegationAttachment(models.Model):
+    delegation = models.OneToOneField(
+        Delegation, on_delete=models.CASCADE, related_name="attachment"
+    )
+    filename = models.CharField(max_length=150)
+    mime_type = models.CharField(max_length=20)
+    content = models.BinaryField(editable=False)
 
 
 class SubmissionReceipt(models.Model):
@@ -133,6 +396,12 @@ class SubmissionReceipt(models.Model):
     fingerprint = models.CharField(max_length=64)
     revision = models.PositiveIntegerField()
     accepted_at = models.DateTimeField()
+    cast_by = models.ForeignKey(
+        ElectionVoter,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="proxy_receipts",
+    )
 
     class Meta:
         constraints: ClassVar = [

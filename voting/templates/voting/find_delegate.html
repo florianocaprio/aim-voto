@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{% if received %}Cerca il delegante{% else %}Cerca un socio a cui delegare{% endif %}{% endblock %}
+{% block content %}
+{% if received %}
+  <a class="back" href="{% url 'voting:assembly' %}">Deleghe</a>
+{% else %}
+  <a class="back" href="{% url 'voting:ballot' %}">Torna alla tua scheda</a>
+{% endif %}
+<p class="mode">{{ election.title }}</p>
+<h1>{% if received %}Cerca il socio che ti ha delegato{% else %}Cerca un socio a cui delegare{% endif %}</h1>
+<section class="card narrow stack" data-delegate-search>
+  <form method="get" class="stack">
+    <div>
+      <label for="delegate-query">Nome, cognome o matricola</label>
+      <input id="delegate-query" type="search" name="q" value="{{ query }}" maxlength="100" autocomplete="off">
+    </div>
+    <div><button class="button">Cerca</button></div>
+  </form>
+  <p role="status">{% if error %}{{ error }}{% elif query and not candidates %}Nessun risultato. Inserisci almeno due caratteri e prova con un altro nome o matricola.{% endif %}</p>
+  <ul data-delegate-results {% if not candidates %}hidden{% endif %}>
+    {% for candidate in candidates %}
+      <li>
+        {% if candidate.unavailable %}
+          <span>{{ candidate.first_name }} {{ candidate.last_name }} · {{ candidate.external_id }}</span>
+          <small>{{ candidate.unavailable }}</small>
+        {% else %}
+          <a href="{{ candidate.url }}">{{ candidate.first_name }} {{ candidate.last_name }} · {{ candidate.external_id }}</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

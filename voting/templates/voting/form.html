@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block content %}
-{% if election %}<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>{% else %}<a class="back" href="{% url 'voting:dashboard' %}">Consultazioni</a>{% endif %}
+{% if back_url %}<a class="back" href="{{ back_url }}">{{ back_label }}</a>{% elif election %}<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>{% else %}<a class="back" href="{% url 'voting:dashboard' %}">Consultazioni</a>{% endif %}
 <h1>{{ title }}</h1>
 <section class="card narrow stack">
   {% if subject %}<p>{{ subject.first_name }} {{ subject.last_name }} · {{ subject.external_id }}</p>{% endif %}
-  {% if sections %}<p class="muted">Sezioni disponibili · {{ sections|join:", " }}</p>{% endif %}
-  <form method="post" class="stack" {% if multipart %}enctype="multipart/form-data"{% endif %}>{% csrf_token %}
+  {% if legacy_quorum_label %}<p class="alert">Quorum salvato · {{ legacy_quorum_label }}. Salvando userai la soglia selezionata nel menu.</p>{% endif %}
+  {% if question_rules %}{{ question_presets|json_script:"question-presets" }}{% endif %}
+  <form method="post" class="stack"{% if multipart %} enctype="multipart/form-data"{% endif %}{% if question_rules %} data-question-rules{% endif %}>{% csrf_token %}
     {{ form.as_div }}
-    {% if show_secret_option %}<label class="muted"><input type="checkbox" disabled> Voto segreto · In preparazione</label>{% endif %}
     <div><button class="button">{{ submit_text }}</button></div>
   </form>
   {% if remove_question %}

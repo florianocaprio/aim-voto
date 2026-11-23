@@ -11,7 +11,8 @@ from django.views.decorators.http import require_GET, require_http_methods
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
-from config.auth import staff_required
+from voting.access import election_administrator
+from voting.models import MAX_ELECTORATE_SIZE, Election
 
 from .demo import DEMO_MEMBERS
 from .forms import ConfirmForm, MappingForm, UploadForm
@@ -27,14 +28,24 @@ from .models import ImportBatch
 UPLOAD_TTL = timedelta(minutes=30)
 
 
-def active_batches(request):
-    return ImportBatch.objects.filter(owner=request.user, expires_at__gt=timezone.now())
+def draft_election(pk, *, lock=False):
+    queryset = Election.objects.select_for_update() if lock else Election
+    return get_object_or_404(queryset, pk=pk, status=Election.Status.DRAFT)
+
+
+def active_batches(request, election):
+    return ImportBatch.objects.filter(
+        owner=request.user,
+        election=election,
+        expires_at__gt=timezone.now(),
+    )
 
 
 @never_cache
-@staff_required
+@election_administrator
 @require_http_methods(["GET", "POST"])
-def upload(request):
+def upload(request, pk):
+    election = draft_election(pk)
     form = (
         UploadForm(request.POST, request.FILES)
         if request.method == "POST"
@@ -51,72 +62,85 @@ def upload(request):
         else:
             now = timezone.now()
             ImportBatch.objects.filter(expires_at__lte=now).delete()
-            batch = ImportBatch.objects.create(
-                owner=request.user,
-                expires_at=now + UPLOAD_TTL,
-                headings=headings,
-                records=records,
-                blank_rows=blank_rows,
-            )
-            return redirect("members:mapping", batch_id=batch.pk)
-    return render(request, "members/upload.html", {"form": form})
+            with transaction.atomic():
+                locked_election = draft_election(pk, lock=True)
+                batch = ImportBatch.objects.create(
+                    owner=request.user,
+                    election=locked_election,
+                    expires_at=now + UPLOAD_TTL,
+                    headings=headings,
+                    records=records,
+                    blank_rows=blank_rows,
+                )
+            return redirect("members:mapping", pk=pk, batch_id=batch.pk)
+    return render(request, "members/upload.html", {"form": form, "election": election})
 
 
 @never_cache
-@staff_required
+@election_administrator
 @require_http_methods(["GET", "POST"])
-def mapping(request, batch_id):
+def mapping(request, pk, batch_id):
+    election = draft_election(pk)
     if request.method == "POST":
         with transaction.atomic():
+            election = draft_election(pk, lock=True)
             batch = get_object_or_404(
-                active_batches(request).select_for_update(), pk=batch_id
+                active_batches(request, election).select_for_update(), pk=batch_id
             )
             if batch.completed_at:
-                return redirect("members:preview", batch_id=batch.pk)
+                return redirect("members:preview", pk=pk, batch_id=batch.pk)
             form = MappingForm(batch.headings, request.POST, mapping=batch.mapping)
             if form.is_valid():
                 batch.mapping = form.cleaned_data
                 batch.save(update_fields=["mapping"])
-                return redirect("members:preview", batch_id=batch.pk)
+                return redirect("members:preview", pk=pk, batch_id=batch.pk)
     else:
-        batch = get_object_or_404(active_batches(request), pk=batch_id)
+        batch = get_object_or_404(active_batches(request, election), pk=batch_id)
         if batch.completed_at:
-            return redirect("members:preview", batch_id=batch.pk)
+            return redirect("members:preview", pk=pk, batch_id=batch.pk)
         form = MappingForm(batch.headings, mapping=batch.mapping)
     return render(
         request,
         "members/mapping.html",
-        {"form": form, "batch": batch, "row_count": len(batch.records)},
+        {
+            "form": form,
+            "batch": batch,
+            "election": election,
+            "row_count": len(batch.records),
+        },
     )
 
 
 @never_cache
-@staff_required
+@election_administrator
 @require_http_methods(["GET", "POST"])
-def preview(request, batch_id):
-    batch = get_object_or_404(active_batches(request), pk=batch_id)
+def preview(request, pk, batch_id):
+    election = draft_election(pk)
+    batch = get_object_or_404(active_batches(request, election), pk=batch_id)
     if batch.completed_at:
         return render(
-            request, "members/complete.html", {"batch": batch, "summary": batch.summary}
+            request,
+            "members/complete.html",
+            {"batch": batch, "election": election, "summary": batch.summary},
         )
     if not batch.mapping:
-        return redirect("members:mapping", batch_id=batch.pk)
+        return redirect("members:mapping", pk=pk, batch_id=batch.pk)
 
     status = 200
     changed = False
     form = ConfirmForm(request.POST) if request.method == "POST" else None
     if form is not None and form.is_valid():
         batch, result = confirm_import(
-            batch_id, request.user, form.cleaned_data["fingerprint"]
+            pk, batch_id, request.user, form.cleaned_data["fingerprint"]
         )
         if batch is None:
             raise Http404
         if batch.completed_at:
-            return redirect("members:preview", batch_id=batch_id)
+            return redirect("members:preview", pk=pk, batch_id=batch_id)
         if result is None:
-            return redirect("members:mapping", batch_id=batch_id)
+            return redirect("members:mapping", pk=pk, batch_id=batch_id)
         form = ConfirmForm(initial={"fingerprint": result.fingerprint})
-        changed = True
+        changed = not (result.over_capacity or result.summary["errors"])
         status = 409
     else:
         result = build_preview(batch)
@@ -129,6 +153,8 @@ def preview(request, batch_id):
         "members/preview.html",
         {
             "batch": batch,
+            "election": election,
+            "max_electorate_size": MAX_ELECTORATE_SIZE,
             "preview": result,
             "summary": result.summary,
             "form": form,
@@ -148,27 +174,30 @@ def csv_download(filename, rows):
     return response
 
 
-@staff_required
+@election_administrator
 @require_GET
-def template_csv(request):
-    return csv_download("modello-soci.csv", [])
+def template_csv(request, pk):
+    draft_election(pk)
+    return csv_download("modello-elettori.csv", [])
 
 
-@staff_required
+@election_administrator
 @require_GET
-def demo_csv(request):
+def demo_csv(request, pk):
+    draft_election(pk)
     return csv_download(
-        "soci-dimostrativi.csv",
+        "elettori-dimostrativi.csv",
         ([row[name] for name in IMPORT_FIELDS] for row in DEMO_MEMBERS),
     )
 
 
-@staff_required
+@election_administrator
 @require_GET
-def template_xlsx(request):
+def template_xlsx(request, pk):
+    draft_election(pk)
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "Soci"
+    sheet.title = "Elettori"
     sheet.append(list(IMPORT_FIELDS.values()))
     sheet.freeze_panes = "A2"
     for number, name in enumerate(IMPORT_FIELDS, start=1):
@@ -182,5 +211,5 @@ def template_xlsx(request):
         output.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    response["Content-Disposition"] = 'attachment; filename="modello-soci.xlsx"'
+    response["Content-Disposition"] = 'attachment; filename="modello-elettori.xlsx"'
     return response

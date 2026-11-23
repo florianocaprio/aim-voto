@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Conferma la delega{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:find_delegate' %}">Torna alla ricerca</a>
+<p class="mode">{{ election.title }}</p>
+<h1>Conferma la delega</h1>
+<section class="card narrow stack">
+  {% if error %}<p role="alert" class="error">{{ error }}</p>{% endif %}
+  <p><strong>{{ delegate.first_name }} {{ delegate.last_name }}</strong> · Matricola {{ delegate.external_id }}</p>
+  <p>Dopo la conferma, la scheda personale sarà disabilitata. Il socio indicato riceverà il link per votare per tuo conto. Potrai revocare la delega fino all’acquisizione della scheda.</p>
+  <form method="post" class="stack">{% csrf_token %}
+    <label><input type="checkbox" name="confirm" value="yes" required> Confermo la scelta del delegato</label>
+    <div><button class="button">Conferma e invia la delega</button></div>
+  </form>
+</section>
+{% endblock %}

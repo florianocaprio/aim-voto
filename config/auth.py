@@ -28,6 +28,21 @@ def staff_required(view):
     return guarded
 
 
+def require_superadmin(user):
+    if not (user.is_active and user.is_staff and user.is_superuser):
+        raise PermissionDenied
+
+
+def superadmin_required(view):
+    @staff_required
+    @wraps(view)
+    def guarded(request, *args, **kwargs):
+        require_superadmin(request.user)
+        return view(request, *args, **kwargs)
+
+    return guarded
+
+
 class StaffAuthenticationForm(AuthenticationForm):
     def confirm_login_allowed(self, user):
         super().confirm_login_allowed(user)

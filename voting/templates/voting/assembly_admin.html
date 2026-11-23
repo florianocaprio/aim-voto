@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Presenze e deleghe{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+<div class="page-heading"><div><h1>Presenze e deleghe</h1><p class="muted">{{ election.title }}</p></div></div>
+<div class="stack">
+  {% if election.opened_at %}
+  <section class="card stack">
+    <div class="page-heading"><h2>Presenze registrate · {{ presences.paginator.count }}</h2><a class="button secondary" href="{% url 'voting:presence_csv' election.pk %}">Scarica presenze CSV</a></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Socio</th><th scope="col">Sezione</th><th scope="col">Presenza · Roma</th><th scope="col">Origine</th></tr></thead>
+      <tbody>{% for item in presences %}
+        <tr><th scope="row">{{ item.voter.first_name }} {{ item.voter.last_name }}<small>{{ item.voter.external_id }}</small></th><td>{{ item.voter.section }}</td><td>{{ item.confirmed_at|date:"d/m/Y H:i:s T" }}</td><td>{{ item.get_source_display }}</td></tr>
+      {% empty %}<tr><td colspan="4">Nessuna presenza registrata.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if presences.has_other_pages %}
+    <nav class="pagination" aria-label="Pagine delle presenze">
+      {% if presences.has_previous %}<a href="?page={{ presences.previous_page_number }}">Precedente</a>{% endif %}
+      <span>Pagina {{ presences.number }} di {{ presences.paginator.num_pages }}</span>
+      {% if presences.has_next %}<a href="?page={{ presences.next_page_number }}">Successiva</a>{% endif %}
+    </nav>
+    {% endif %}
+  </section>
+  {% endif %}
+  <section class="card stack">
+    <h2>Deleghe</h2>
+    {% if election.allow_delegations %}
+      <p>La platea di questa consultazione consente fino a <strong>{{ limit }} deleghe approvate per delegato</strong>.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Delegante</th><th scope="col">Delegato</th><th scope="col">Domanda</th><th scope="col">Stato</th><th scope="col">Azioni</th></tr></thead>
+        <tbody>{% for item in delegations %}
+          <tr>
+            <th scope="row">{{ item.grantor.first_name }} {{ item.grantor.last_name }}<small>{{ item.grantor.external_id }}</small></th>
+            <td>{{ item.delegate.first_name }} {{ item.delegate.last_name }}<small>{{ item.delegate.external_id }}</small></td>
+            <td>{% if item.has_attachment %}<a href="{% url 'voting:delegation_attachment' election.pk item.pk %}">Scarica allegato</a>{% elif item.notice %}Delega diretta{% else %}Richiesta del delegante{% endif %}</td>
+            <td>{{ item.get_state_display }}{% if item.notice %}<small>Email: {{ item.notice.get_state_display }}</small>{% endif %}</td>
+            <td>
+              {% if is_open and item.state == "pending" %}
+              <div class="actions">
+                <form method="post" action="{% url 'voting:staff_delegation' election.pk item.pk 'approve' %}">{% csrf_token %}<button class="button">Approva</button></form>
+                <form method="post" action="{% url 'voting:staff_delegation' election.pk item.pk 'reject' %}">{% csrf_token %}<button class="button secondary">Rifiuta</button></form>
+              </div>
+              {% elif is_open and item.state == "approved" %}
+                <form method="post" action="{% url 'voting:staff_delegation' election.pk item.pk 'revoke' %}">{% csrf_token %}<button class="button secondary">Revoca</button></form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}<tr><td colspan="5">Nessuna delega presentata.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    {% else %}
+      <p>Le deleghe sono disabilitate per questa consultazione.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

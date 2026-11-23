@@ -1,0 +1,9 @@
+{% if is_open %}
+  {% if item.exercised %}
+    <a class="button delegation-completed" href="{% url 'voting:proxy_ballot' item.pk %}" aria-label="DELEGA ESERCITATA per {{ item.grantor.first_name }} {{ item.grantor.last_name }}">DELEGA ESERCITATA</a>
+  {% else %}
+    <a class="button" href="{% url 'voting:proxy_ballot' item.pk %}" aria-label="ESERCITA DELEGA per {{ item.grantor.first_name }} {{ item.grantor.last_name }}">ESERCITA DELEGA</a>
+  {% endif %}
+{% elif item.exercised %}
+  <span class="button delegation-completed">DELEGA ESERCITATA</span>
+{% endif %}

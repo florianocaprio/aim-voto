@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Verifica assembleare{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+<h1>{% if previous %}Rettifica la verifica assembleare{% else %}Verifica la partecipazione assembleare{% endif %}</h1>
+<div class="stack">
+  <p>{{ eligible }} aventi diritto · {{ ballots }} schede elettroniche acquisite.</p>
+  <p>Indica i presenti riconosciuti e le rappresentanze accertate secondo la procedura assembleare. Le schede elettroniche e le presenze registrate servono al riscontro.</p>
+  <form method="post" class="card stack narrow">
+    {% csrf_token %}
+    {{ form.as_div }}
+    <div><button class="button">{% if previous %}Registra rettifica{% else %}Registra verifica{% endif %}</button></div>
+  </form>
+  {% if previous %}
+    <section class="card stack narrow">
+      <h2>Storico delle verifiche</h2>
+      {% for entry in history %}
+        <div>
+          <strong>Revisione {{ entry.revision }}</strong> · {{ entry.verified_at|date:"d/m/Y H:i:s T" }}
+          <p>{{ entry.president }} · {{ entry.reference }}{% if entry.verified_by %} · Registrata da {{ entry.verified_by.get_username }}{% endif %}</p>
+          {% if entry.correction_reason %}<p>{{ entry.correction_reason }}</p>{% endif %}
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

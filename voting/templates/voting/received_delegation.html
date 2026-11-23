@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Presenta una delega ricevuta{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:assembly' %}">Deleghe</a>
+<div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>Presenta una delega ricevuta</h1></div></div>
+<section class="card stack narrow">
+  <p>Delegante <strong>{{ grantor.first_name }} {{ grantor.last_name }}</strong> · Matricola {{ grantor.external_id }}</p>
+  <div><a href="{% url 'voting:received_delegation' %}">Cambia delegante</a></div>
+  <p class="muted">Deleghe riservate o approvate {{ reserved }} su {{ limit }}.</p>
+  {% if at_capacity %}
+    <p class="alert warning" role="alert">Hai raggiunto il limite di {{ limit }} deleghe presentate o approvate. Non puoi presentare altre richieste.</p>
+  {% else %}
+    <p>Allega la domanda compilata. Dopo l’approvazione dello staff riceverai il link dedicato.</p>
+    <form method="post" enctype="multipart/form-data" class="stack">
+      {% csrf_token %}
+      {{ form.as_div }}
+      <div><button class="button">Invia richiesta allo staff</button></div>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

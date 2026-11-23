@@ -8,21 +8,28 @@
 </header>
 <div class="stack">
   <section class="card">
-    {% if open %}
+    {% if open or editing_template %}
       <form method="post" class="stack">
         {% csrf_token %}
         {{ form.as_p }}
-        <div class="actions"><button class="button" type="submit">Verifica destinatari e messaggio</button></div>
+        {% if editing_template %}
+          <p class="muted">Il modello salvato verrà proposto quando preparerai gli inviti.</p>
+          <div class="actions"><button class="button" type="submit" name="action" value="save_template">Salva modello</button></div>
+        {% else %}
+          <div class="actions"><button class="button" type="submit">Verifica destinatari e messaggio</button></div>
+        {% endif %}
       </form>
       {% if kind == "reminder" %}
         <p class="muted">Sono candidati al sollecito gli elettori senza una scheda acquisita. Il sistema applica l’intervallo minimo di {{ election.reminder_interval_hours }} ore.</p>
       {% endif %}
     {% else %}
+      {{ form.non_field_errors }}
       <p>Puoi accodare email quando la consultazione è aperta.</p>
     {% endif %}
   </section>
   <section class="card" aria-labelledby="example-message">
-    <h2 id="example-message">Modello del messaggio</h2>
+    <h2 id="example-message">Anteprima del messaggio</h2>
+    <h3>{{ sample_subject }}</h3>
     <div>{{ sample_body|linebreaks }}</div>
   </section>
 </div>

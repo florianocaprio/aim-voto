@@ -8,8 +8,12 @@ from django.utils import timezone
 
 class MailKind(models.TextChoices):
     INVITE = "invite", "Inviti"
+    EARLY = "early", "Apertura per deleghe"
+    VOTE_OPEN = "voteopen", "Apertura del voto"
     REMINDER = "reminder", "Solleciti ai non votanti"
     RESEND = "resend", "Reinvio individuale"
+    PROXY = "proxy", "Link di voto per delega"
+    RESULTS = "results", "Risultati della votazione"
 
 
 class CampaignState(models.TextChoices):
@@ -32,6 +36,7 @@ class DeliveryState(models.TextChoices):
 class DeliveryReason(models.TextChoices):
     CLOSED = "closed", "Consultazione chiusa o scaduta"
     NOT_OPEN = "not_open", "Consultazione in attesa di apertura"
+    RESULTS_UNPUBLISHED = "results_unpublished", "Scrutinio non pubblicato"
     VOTED = "voted", "Voto già acquisito"
     INVALID_CREDENTIAL = "invalid_credential", "Credenziale assente o non valida"
     MISSING_EMAIL = "missing_email", "Indirizzo email mancante"
@@ -39,11 +44,24 @@ class DeliveryReason(models.TextChoices):
     FREQUENCY = "frequency", "Intervallo fra solleciti ancora in corso"
     PENDING = "pending", "Invio già in corso o in coda"
     ALREADY_INVITED = "already_invited", "Invito già inviato o con esito incerto"
+    EARLY_ENDED = "early_ended", "Fase anticipata per le deleghe terminata"
     CANCELLED = "cancelled", "Annullato dall’amministratore"
     TRANSIENT = "smtp_temporary", "Errore temporaneo SMTP"
     PERMANENT = "smtp_permanent", "Errore permanente SMTP"
     UNKNOWN = "smtp_unknown", "Riscontro SMTP assente o ambiguo"
     INTERRUPTED = "interrupted", "Tentativo interrotto con esito sconosciuto"
+    INVALID_DELEGATION = (
+        "invalid_delegation",
+        "Delega assente, revocata o non approvata",
+    )
+
+
+class InvitationTemplate(models.Model):
+    election = models.OneToOneField(
+        "voting.Election", on_delete=models.CASCADE, related_name="invitation_template"
+    )
+    subject = models.CharField(max_length=140)
+    body = models.TextField()
 
 
 class ReminderCampaign(models.Model):
@@ -67,6 +85,18 @@ class ReminderCampaign(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("election",),
+                condition=Q(kind=MailKind.RESULTS),
+                name="mailings_one_results_per_election",
+            ),
+            models.UniqueConstraint(
+                fields=("election", "kind"),
+                condition=Q(kind__in=(MailKind.EARLY, MailKind.VOTE_OPEN)),
+                name="mailings_one_notice_per_opening",
+            ),
+        )
 
 
 class EmailDelivery(models.Model):
@@ -75,6 +105,13 @@ class EmailDelivery(models.Model):
     )
     voter = models.ForeignKey(
         "voting.ElectionVoter", on_delete=models.CASCADE, related_name="deliveries"
+    )
+    delegation = models.OneToOneField(
+        "voting.Delegation",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="notice",
     )
     kind = models.CharField(max_length=8, choices=MailKind.choices)
     state = models.CharField(max_length=9, choices=DeliveryState.choices)
@@ -95,8 +132,14 @@ class EmailDelivery(models.Model):
             ),
             models.UniqueConstraint(
                 fields=("voter", "kind"),
-                condition=Q(state__in=(DeliveryState.QUEUED, DeliveryState.SENDING)),
+                condition=Q(state__in=(DeliveryState.QUEUED, DeliveryState.SENDING))
+                & Q(delegation__isnull=True),
                 name="mailings_one_pending_per_kind",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind=MailKind.PROXY, delegation__isnull=False)
+                | (~Q(kind=MailKind.PROXY) & Q(delegation__isnull=True)),
+                name="mailings_proxy_requires_delegation",
             ),
         )
         indexes = (

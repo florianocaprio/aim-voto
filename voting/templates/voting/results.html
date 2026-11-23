@@ -3,27 +3,19 @@
 {% block content %}
 <a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
 <h1>Risultati e report</h1>
-<p>{{ election.title }} · Voto palese</p>
-<div class="stats">
-  <div class="card"><strong>{{ eligible }}</strong><span>Aventi diritto</span></div>
-  <div class="card"><strong>{{ total }}</strong><span>Schede valide</span></div>
-  <div class="card"><strong>{{ blank }}</strong><span>Schede bianche</span></div>
-</div>
-<div class="stack">
-  {% for item in rows %}
-  <section class="card stack">
-    <h2>{{ item.question }}</h2>
-    <p>{{ item.answered }} schede con risposta su {{ total }} valide. Quesito lasciato vuoto in {{ item.omitted }} schede.</p>
-    <table>
-      <thead><tr><th scope="col">Opzione</th><th scope="col">Preferenze</th></tr></thead>
-      <tbody>{% for label, count in item.choices %}<tr><th scope="row">{{ label }}</th><td>{{ count }}</td></tr>{% endfor %}</tbody>
-    </table>
-  </section>
-  {% endfor %}
-</div>
+<p>{{ election.title }} · Voto {{ election.get_mode_display|lower }}</p>
+{% include "voting/results_summary.html" %}
+{% if verification %}
+<section class="card stack lifecycle">
+  <h2>Attestazione del Presidente</h2>
+  <p>{{ verification.president }} · {{ verification.reference }} · {{ verification.verified_at|date:"d/m/Y H:i:s T" }}</p>
+  <div><a class="button secondary" href="{% url 'voting:verify_assembly' election.pk %}">Rettifica la verifica</a></div>
+</section>
+{% endif %}
 <div class="actions lifecycle">
   <a class="button secondary" href="{% url 'voting:export' election.pk 'risultati-csv' %}">Risultati CSV</a>
-  <a class="button secondary" href="{% url 'voting:export' election.pk 'partecipazione-csv' %}">Elenco di partecipazione CSV</a>
+  <a class="button secondary" href="{% url 'voting:export' election.pk 'partecipazione-csv' %}">{% if election.is_secret %}Elenco aventi diritto CSV{% else %}Elenco di partecipazione CSV{% endif %}</a>
   <a class="button" href="{% url 'voting:export' election.pk 'report-pdf' %}">Report PDF</a>
+  <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Verbale assembleare</a>
 </div>
 {% endblock %}

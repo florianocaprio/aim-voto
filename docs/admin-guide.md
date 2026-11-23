@@ -2,45 +2,87 @@
 
 L’ambiente locale di AIM Voto è destinato a prove con soci sintetici. Le email indirizzate a recapiti `@example.invalid` sono raccolte in Mailpit. I comandi per l’avvio, la creazione dell’account nazionale e l’attivazione della verifica TOTP sono nel [README](../README.md).
 
-Con un account nazionale puoi preparare consultazioni per qualsiasi sezione dell’associazione. Verifica titolo, platea e scadenza prima di confermare ogni apertura o campagna.
+## Profili amministrativi
 
-## Importare l’anagrafica
+Accedi come **superadmin** e apri **Amministratori → Nuovo amministratore**. Imposta nome utente e password, poi scegli **Tutte le consultazioni** o **Consultazioni selezionate** e spunta una o più votazioni dall’elenco. Per aggiungere o revocare assegnazioni, apri **Modifica accesso** e aggiorna le caselle. Il profilo con tutte le caselle deselezionate resta senza consultazioni assegnate.
 
-1. Apri **Soci**. Scarica il modello CSV o XLSX. Per la dimostrazione puoi scaricare il **CSV con tre soci dimostrativi**.
+L’amministratore globale può gestire tutte le votazioni e crearne di nuove. Un amministratore con accesso limitato vede e gestisce solo le consultazioni assegnate. Copia del link personale, WhatsApp, inviti, solleciti, reinvii e revoca dei link sono riservati al superadmin. Durante l’apertura anche la correzione dei recapiti richiede il superadmin. Le notifiche automatiche per le deleghe approvate usano il recapito registrato del delegato.
+
+Verifica titolo, platea e scadenza prima di confermare ogni apertura o campagna.
+
+## Preparare la platea degli aventi diritto
+
+Nella bozza apri **Aventi diritto**. Con **Aggiungi elettore** inserisci nome, cognome, matricola ed email. Cellulare e sezione sono facoltativi. In bozza puoi modificare o rimuovere una posizione dal relativo dettaglio.
+
+1. Apri **Importa CSV** nella platea. Scarica il modello CSV o XLSX. Per la dimostrazione puoi scaricare il **CSV con tre elettori dimostrativi**.
 2. Carica il file. Per il CSV scegli separatore e codifica. Sono disponibili punto e virgola, virgola e tabulazione, con UTF-8 anche con BOM, Windows-1252 o ISO-8859-1. Indica se la prima riga contiene le intestazioni.
-3. Seleziona **Associa le colonne**. Associa ID socio, nome, cognome, email e sezione. Il cellulare è facoltativo. Nel modello XLSX i campi associati vanno memorizzati come testo, in particolare per conservare gli zeri iniziali. Viene letto il primo foglio.
+3. Seleziona **Associa le colonne**. Associa matricola, nome, cognome ed email. Cellulare e sezione sono facoltativi. Nel modello XLSX i campi associati vanno memorizzati come testo, in particolare per conservare gli zeri iniziali. Viene letto il primo foglio.
 4. Seleziona **Controlla l’anteprima**. Esamina nuovi soci, aggiornamenti, righe invariate, errori e avvisi. Correggi eventuali righe con errore e ricarica il file, oppure verifica l’associazione delle colonne.
 5. Quando il riepilogo è corretto, seleziona la casella di verifica e premi **Conferma importazione**. Se i dati rilevanti cambiano prima del salvataggio, il sistema presenta una nuova anteprima da confermare.
 
-Il file può contenere al massimo 5.000 righe dati e 32 colonne e deve rientrare in 2 MiB. Per l’ID socio contano le maiuscole e minuscole dopo la rimozione degli spazi ai bordi e la normalizzazione Unicode. Un ID ripetuto nella stessa importazione richiede una correzione. Un’email condivisa genera un avviso e mantiene distinti i soci. Se la colonna del cellulare resta senza associazione, il valore esistente viene conservato. Una cella vuota in una colonna del cellulare associata cancella il valore precedente.
+Il file può contenere al massimo 5.000 righe dati e 32 colonne e deve rientrare in 2 MiB. La platea può contenere fino a 2.000 elettori. Per la matricola contano le maiuscole, le minuscole e gli zeri iniziali. Una matricola ripetuta nel file richiede una correzione. Una matricola già presente aggiorna la posizione di quella bozza e le posizioni assenti dal file restano nella platea. Un’email condivisa genera un avviso. Se una colonna facoltativa resta senza associazione, il valore esistente viene conservato. Una cella vuota in una colonna associata cancella il valore precedente.
 
 L’anteprima è accessibile dal solo operatore che ha caricato il file e scade dopo 30 minuti. Il successivo caricamento elimina le anteprime scadute. Il comando `docker compose exec web python manage.py purge_imports` consente la pulizia anche senza avviare un’altra importazione.
 
 ## Preparare e aprire una consultazione
 
 1. In **Consultazioni** scegli **Nuova consultazione**. Imposta titolo, descrizione e scadenza in ora di Roma. Indica l’ora di apertura se vuoi programmarla. Scegli se consentire la sostituzione della scheda, attiva inizialmente.
-2. Da **Aggiungi quesito** inserisci una mozione, una scelta singola, una scelta multipla o una selezione di candidati. Per le selezioni multiple stabilisci il numero massimo di preferenze. **Gestisci documenti** accetta fino a cinque PDF da 3 MiB ciascuno.
-3. Apri **Componi la platea**. Indica una sezione, incolla gli ID dei singoli soci o combina i due criteri. Lascia entrambi i campi vuoti per selezionare tutta l’anagrafica. Verifica la platea quando salvi, soprattutto se hai aggiornato i recapiti nell’anagrafica.
-4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri ora** oppure **Programma l’apertura** e conferma l’operazione. Dallo stato programmato puoi tornare in bozza per fare modifiche. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale.
-5. Durante l’apertura, seleziona **Prepara inviti email**. Scegli la sezione o l’intera platea, personalizza oggetto e testo, verifica i destinatari e conferma l’accodamento.
+2. Da **Aggiungi quesito** inserisci una mozione, una scelta singola, una scelta multipla o una selezione di candidati. Per le selezioni multiple stabilisci il numero massimo di preferenze. In **Gestisci documenti** puoi caricare fino a cinque PDF da 3 MiB ciascuno. Dopo ogni caricamento o rimozione trovi l’elenco aggiornato sulla stessa pagina.
+3. Apri **Aventi diritto** e inserisci la platea di questa consultazione, a mano o con un file. Controlla l’elenco prima di aprire o programmare la votazione.
+4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri per votazione** oppure **Programma l’apertura**. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale. Prima di aprire per deleghe puoi riportare in bozza una consultazione programmata.
+5. Come superadmin, usa **Anteprima email di invito** per modificare oggetto e messaggio in bozza o con apertura programmata. Premi **Salva modello** per ritrovare il testo quando la consultazione apre. Durante l’apertura, scegli **Prepara inviti email**, verifica i destinatari e conferma l’accodamento.
 
-Il voto è palese. All’apertura si congelano quesiti, opzioni, regole e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
+Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega e la sostituzione del voto. Con **Consenti la sostituzione del voto** attiva, fa fede l’ultima scheda confermata prima della chiusura. Con la casella vuota, la prima conferma rende il voto definitivo. Nel segreto, per sostituire una scheda occorre compilare di nuovo i quesiti. All’apertura si congelano quesiti, opzioni, modalità e platea.
+
+### Aprire prima per le deleghe
+
+Con le deleghe abilitate, il superadmin può scegliere **Apri per delega** dalla bozza o da una consultazione programmata. Alla conferma il sistema congela quesiti, regole e platea e accoda un invito personale per ogni avente diritto. Dal link personale si possono conferire deleghe, presentare deleghe ricevute e leggere i PDF. Lo staff può verificare gli allegati e decidere sulle richieste. Le schede e la conferma di presenza diventano disponibili all’apertura del voto.
+
+Il voto si apre all’orario indicato in bozza oppure con **Apri per votazione**. Dopo la fase deleghe viene accodato un avviso di apertura con lo stesso link personale. Gli invii dedicati alle singole deleghe diventano disponibili al voto. Lo **Storico invii** mostra entrambe le campagne.
+
+Per una consultazione senza tipo di assemblea, **Quorum della votazione** stabilisce il minimo complessivo di schede acquisite. Le soglie frazionarie si calcolano sugli aventi diritto, arrotondando all’intero superiore. Con **Libero** la soglia minima è zero.
+
+In **Aggiungi quesito** o **Modifica quesito**, imposta separatamente le due regole.
+
+1. In **Quorum del quesito**, scegli **Libero**, **3/4**, **2/3**, **1/2** o **1/3**. Le frazioni si calcolano sugli aventi diritto e si arrotondano all’intero superiore. Contano le risposte al quesito, comprese le astensioni. I quesiti saltati restano fuori da questo conteggio.
+2. Per una mozione, scegli il **Criterio deliberativo**. Con **Voti espressi** i favorevoli devono superare i contrari. Con **Maggioranza assoluta dei presenti** devono superare la metà dei partecipanti, comprese le astensioni e le eventuali posizioni senza scelta incluse nella base di partecipazione. Con **Maggioranza qualificata** indica anche frazione e denominatore. Il minimo di favorevoli si arrotonda all’intero superiore. Senza verifica assembleare, la base dei partecipanti è il totale delle schede acquisite. Per usare tutti gli associati, indica il totale nella consultazione.
+
+Per ogni mozione, scegli **Favorevole / Contrario / Astenuto** per richiedere una risposta. Scegli **Favorevole / Contrario / Astenuto / Senza risposta** per consentire di saltare quel quesito. Lo scrutinio conta **Astenuto** fra le schede con risposta e riporta le omissioni a parte, anche quando la stessa scheda contiene risposte ad altri quesiti.
+
+Per consultare lo storico apri la votazione conclusa da **Consultazioni** e scegli **Elettori della votazione**. La stessa matricola può riportare un recapito diverso in un’altra consultazione.
 
 ## Assistere un elettore
 
-In **Elettori della votazione**, cerca per nome, ID socio, email o cellulare. La riga mostra sezione, recapiti, stato dell’ultimo invio e se il sistema ha acquisito una scheda.
+In **Elettori della votazione**, cerca per nome, matricola, email o cellulare e apri il nome del socio. Puoi aprire la stessa scheda dal nome di un destinatario nello **Storico invii**. La scheda mostra i recapiti, l’ultimo invito o reinvio e la partecipazione.
 
-- **Copia link personale** recupera il collegamento attivo, identico a quello usato dalla coda prima di un’eventuale revoca. Verifica identità e recapito prima di incollarlo nella chat privata del socio su WhatsApp. L’invio su WhatsApp è manuale. Se il browser impedisce la copia automatica, usa il campo del link che appare nella riga.
+Usa **Ordina per** per sfogliare l’elenco per nome, per cognome o per stato del voto. La ricerca e l’ordinamento valgono per tutte le pagine dei risultati. In **Partecipazione** la cornice verde segnala un voto acquisito, anche per delega. La cornice rossa segnala **Non ha ancora votato**. La colonna mostra anche la delega inviata in verifica, quella conferita e il numero di deleghe approvate ancora da votare. Quando il delegato ha votato per sé e ha completato le deleghe ricevute, compare solo **Ha votato**.
+
+Ogni invito apre la posizione identificata dal suo link. Nello stesso profilo del browser il nuovo accesso attiva la sessione del socio indicato e blocca i moduli lasciati aperti con la sessione precedente. Per tornare alla scheda precedente riapri il link personale del socio e verifica la matricola.
+
+- **Copia link personale** recupera durante l’apertura il collegamento attivo usato dalla coda di invio. Se il browser blocca la copia automatica, copia il valore dal campo selezionato.
+- **Copia messaggio e apri WhatsApp Web** usa la sessione WhatsApp del browser e il cellulare della scheda elettore. Inserisci i numeri esteri con il prefisso internazionale; il sistema aggiunge `+39` ai cellulari italiani senza prefisso. Il messaggio rimane negli appunti. Incollalo nella chat, verifica il destinatario e premi **Invia**. Se il browser blocca l’apertura automatica, usa **Apri chat WhatsApp Web**. I link di un’installazione su `localhost` si aprono solo sul computer che la esegue.
 - **Reinvia email** apre un’anteprima per il singolo socio. Verifica destinatario e testo prima di confermare. Il reinvio individuale segue la coda email e mantiene la stessa credenziale attiva.
-- **Correggi recapiti** separa la modifica della posizione elettorale dall’anagrafica generale. Verifica il nuovo recapito, seleziona la motivazione e salva. L’operazione è registrata e conserva persona e diritto di voto.
+- **Correggi recapiti** aggiorna solo l’email o il cellulare della posizione nella consultazione corrente. Verifica il nuovo recapito, seleziona la motivazione e salva. L’operazione è registrata e conserva persona e diritto di voto.
 - **Revoca e rigenera link** richiede motivazione e conferma. Il nuovo link sostituisce il precedente e invalida le sessioni collegate alla versione precedente per nuovi invii. Una scheda già acquisita rimane corrente. Copia il nuovo link o usa il reinvio individuale dopo aver verificato il recapito.
 
 Il link è una credenziale personale. Chi è autorizzato a copiarlo può tecnicamente usarlo per accedere come il socio. Copie, revoche e correzioni sono operazioni tracciate. [Modello di fiducia](security-and-trust-model.md).
 
+## Presenze e deleghe
+
+1. Nella bozza puoi attivare **Richiedi conferma di presenza prima del voto** e **Consenti il voto per delega**. Le regole restano fissate all’apertura. Con la conferma obbligatoria, il pulsante **Conferma presenza e vai al voto** apre la scheda. Nelle altre consultazioni la scheda è accessibile direttamente e il voto acquisito registra in automatico la presenza di chi lo esprime. Per una scheda votata per delega si registra la presenza del delegato. Lo staff trova l’origine della registrazione nell’elenco e nel CSV delle presenze.
+2. Con entrambe le opzioni attive, il socio può usare **Cerca un socio a cui delegare** dal link personale. La ricerca accetta nome, cognome o matricola degli aventi diritto. Dopo la conferma della scelta, la delega è valida, viene accodato il link riservato al delegato e il voto diretto del delegante è sospeso. La revoca resta disponibile prima dell’acquisizione della prima scheda rappresentata.
+3. Dove la conferma di presenza è facoltativa, il delegante può presentare una richiesta indicando la matricola del delegato e attendere la verifica dello staff. In ogni consultazione con deleghe, chi ha ricevuto la domanda può aprire **Presenta una delega ricevuta**, cercare il delegante tra gli aventi diritto per nome, cognome o matricola e selezionarlo. Abbina la domanda compilata in PDF o JPG, massimo 3 MB, e inviala allo staff. Per ciascun delegante può esserci una sola delega attiva.
+4. La platea congelata all’apertura determina il limite per ciascun delegato. Fino a 500 aventi diritto inclusi il massimo è 3. Da 501 in poi il massimo è 5. Le richieste con allegato in verifica e le deleghe approvate occupano la stessa capienza. La ricerca segnala i soci che hanno raggiunto il limite. Se l’ultimo posto viene occupato durante la conferma, scegli un altro socio dalla ricerca. Il delegato può ritirare una propria richiesta con allegato finché è in verifica.
+5. Il pulsante **Deleghe** nella scheda personale mostra il numero di deleghe approvate ricevute. È rosso quando il delegato può votare e resta una delega da esercitare. Dopo l’ultima torna al colore normale. Il delegato può scegliere **ESERCITA DELEGA** dalla propria area **Deleghe** oppure aprire il link ricevuto. Quando la scheda è acquisita, il pulsante della singola delega diventa grigio e mostra **DELEGA ESERCITATA**. La scheda indica il rappresentato e la ricevuta mostra quante posizioni della platea hanno una scheda acquisita, comprese quelle per delega.
+
+Per le richieste presentate dal delegato, lo staff trova **Scarica allegato** nella sezione **Presenze e deleghe**. Esamina il documento e verifica che corrisponda alla persona e alla consultazione prima di premere **Approva**. L’approvazione accoda un’email al delegato con un link dedicato a quella scheda. La tabella indica l’esito dell’invio. L’allegato è riservato allo staff e resta fuori da email e rapporti.
+
+In sviluppo, controlla la notifica in Mailpit. Il link per una delega apre una sessione per la singola scheda rappresentata. Per tornare alla tua scheda e alla gestione delle deleghe, riapri l’invito personale originale. Una revoca o la rigenerazione del link personale del delegato rende inutilizzabile il link specifico già inviato.
+
 ## Inviare un sollecito ai non votanti
 
 1. Con la consultazione aperta, seleziona **Invia sollecito ai non votanti**. Mantieni **Tutte le sezioni** oppure restringi a una sezione della platea. Sono eleggibili i soci senza scheda acquisita. Una scheda bianca, un’astensione confermata e una scheda acquisita che il socio sta sostituendo valgono già come voto.
-2. Modifica **Oggetto** e **Messaggio** se necessario. Il sistema aggiunge nome del socio, titolo, scadenza Europe/Rome, link personale attivo, modalità palese e recapito di assistenza. Usa il modello neutro del sistema o un testo equivalente, privo di link e credenziali.
+2. Modifica **Oggetto** e **Messaggio** se necessario. Il sistema aggiunge nome del socio, titolo, scadenza Europe/Rome, link personale attivo, modalità di voto e recapito di assistenza. Usa il modello neutro del sistema o un testo equivalente, privo di link e credenziali.
 3. Seleziona **Verifica destinatari e messaggio**. Confronta posizioni verificate, email da accodare, esclusioni e motivazioni. In tabella trovi l’ultimo sollecito accettato da SMTP e il relativo conteggio per socio. L’esempio personalizzato mostra un segnaposto per il link.
 4. Premi **Invia sollecito a N soci**. La conferma vale per i destinatari idonei mostrati nell’anteprima. Se vuoi cambiare sezione o testo, prepara una nuova anteprima. Le anteprime scadono dopo 30 minuti. Il numero di messaggi può diminuire alla conferma o durante l’elaborazione, per esempio se nel frattempo un socio vota o scade la consultazione.
 5. Segui la campagna da **Storico invii** e premi **Aggiorna esiti** per aggiornare i conteggi. **Annulla gli invii ancora in coda** annulla le righe pendenti. Per i messaggi già presi in carico, consulta l’esito del tentativo. Il server di posta conserva i messaggi già affidati.
@@ -67,6 +109,29 @@ Se correggi un recapito, controlla l’esito già registrato. Per ripetere un in
 
 La dashboard mostra aventi diritto, votanti unici, affluenza, scadenza e indicatori SMTP durante l’apertura. Alla scadenza il server rifiuta nuove schede e sostituzioni, anche se il worker deve ancora aggiornare lo stato. Puoi anticipare la fine con **Chiudi la consultazione** e confermare. Usa **Annulla consultazione** con una motivazione quando occorre fermare o invalidare la consultazione. La cancellazione è riservata alla bozza.
 
-Dallo stato **Chiusa**, seleziona **Pubblica lo scrutinio** per rendere disponibili i risultati all’amministrazione. **Risultati e report** contiene lo scrutinio per quesito, il CSV dei risultati, il CSV separato di partecipazione e il PDF riepilogativo non firmato. Per ogni quesito verifica le schede con risposta, le schede che lo hanno lasciato vuoto e le preferenze per opzione. Nei quesiti multipli le preferenze complessive possono superare il numero di schede con risposta.
+Dallo stato **Chiusa**, seleziona **Pubblica lo scrutinio** per rendere disponibili i report e accodare il riepilogo via email per ogni avente diritto, anche chi non ha votato. Il riepilogo contiene il totale degli aventi diritto, le schede acquisite e i conteggi per opzione e quesito. In locale le email sono recapitate in Mailpit agli indirizzi `example.invalid`. Lo stato degli invii è disponibile nello storico.
 
-Il CSV di partecipazione contiene nominativi, sezione, stato di voto e orario dell’ultima acquisizione. Custodiscilo come documento riservato. Per la verbalizzazione distingui aventi diritto, votanti e presenze assembleari e applica le regole operative approvate dall’associazione.
+Dopo la pubblicazione, chi ha votato può riaprire il link personale per vedere i risultati aggregati. L’approvazione richiede i quorum applicabili e il numero di favorevoli definito dal criterio deliberativo. Gli esiti senza quorum sono grigi e la soglia mancata è evidenziata in rosso. Le consultazioni storiche applicano le regole con cui erano state configurate.
+
+**Risultati e report** contiene lo scrutinio per quesito, il CSV dei risultati e il PDF riepilogativo non firmato. Per ogni quesito verifica le schede con risposta, le schede che lo hanno lasciato vuoto e le preferenze per opzione. Nei quesiti multipli le preferenze complessive possono superare il numero di schede con risposta.
+
+- Nel **Palese**, i PDF includono l’elenco dei votanti con le scelte per quesito e l’indicazione delle schede in delega. Dopo la pubblicazione lo staff può consultare le scelte anche in **Elettori della votazione**, aprendo il nominativo. Il CSV di partecipazione contiene nominativi, sezione, stato di voto e orario dell’ultima acquisizione.
+- Nel **Segreto**, i PDF includono l’elenco completo degli aventi diritto e i conteggi aggregati per quesito. Il CSV degli aventi diritto riporta matricola, nominativo e sezione.
+
+Custodisci i PDF e gli elenchi nominativi come documenti riservati.
+
+Per rimuovere una consultazione con scrutinio pubblicato, aprila da **Consultazioni** e scegli **Elimina consultazione**. L’operazione è definitiva e comprende i dati della votazione e gli invii ancora in coda. L’audit registra l’identificativo della consultazione eliminata, l’amministratore e la data.
+
+## Quorum e verbale assembleare
+
+Per attivare la verifica assembleare, scegli **Tipo di assemblea**, convocazione e totale degli associati in bozza. La prima convocazione richiede più della metà degli aventi diritto. La seconda è libera per un’ordinaria e richiede almeno un terzo per una straordinaria. Le mozioni ordinarie propongono la maggioranza dei voti espressi. Le modifiche statutarie propongono la maggioranza assoluta dei presenti. Per usare un criterio più restrittivo, attiva **Autorizza quorum personalizzati**. Lo scioglimento richiede almeno tre quarti di tutti gli associati.
+
+Alla chiusura, apri **Verifica la partecipazione**. Registra il riferimento all’attestazione del Presidente, seleziona i presenti e le rappresentanze riconosciute e indica, dove applicabile, la base di partecipazione specifica del quesito. Un socio presente e rappresentato viene contato una volta. Dopo la verifica puoi pubblicare lo scrutinio. Una rettifica richiede una motivazione e crea una nuova revisione. I report e la pagina dei risultati usano l’ultima revisione. Il pacchetto riservato include lo storico delle verifiche. L’email già accodata conserva il riepilogo della prima pubblicazione.
+
+Dopo lo scrutinio, apri **Risultati e report → Verbale assembleare**. Puoi inserire i nominativi del presidente e del segretario, la città e la data della firma, l’ordine del giorno e la discussione. Scegli **Anteprima verbale** per vedere in un’altra scheda il PDF con i dati appena inseriti. I pulsanti di download salvano anche i dati inseriti nel modulo. Usa **Scarica verbale Word** per ottenere un file `.docx` con testo e tabelle modificabili. Ogni campo è facoltativo e ripropone il valore salvato. Le sezioni **Ordine del giorno** e **Discussione** compaiono nell’ordine indicato prima del riepilogo, quando compilate. Dopo la discussione c’è lo spazio di tre righe. La città, la data e i nominativi compaiono nella sezione delle firme. Il verbale usa le regole già salvate nella consultazione e nei quesiti. Un criterio assembleare storico resta consultabile nel verbale delle vecchie consultazioni prive di soglie configurate. Le correzioni fatte in Word valgono per la copia scaricata.
+
+Il PDF mostra identificativo, orari effettivi di apertura e chiusura, ora di esportazione in Europe/Rome, quorum ed esito per ciascun quesito e impronte SHA-256. Gli esiti compaiono in maiuscolo e grassetto. Le firme del presidente e del segretario chiudono il corpo del verbale. L’**Appendice A** elenca tutti gli aventi diritto al voto. Nel palese l’**Appendice B** riporta anche votanti e scelte per quesito. I partecipanti unici nel riepilogo sono le persone che hanno confermato presenza o inviato una scheda, di persona o per delega. In `deleghe.csv` trovi per ogni richiesta stato e presenza di una scheda acquisita per delega.
+
+Il pacchetto contiene i dati di presenze e deleghe e va custodito come materiale riservato. Dopo l’estrazione, esegui `shasum -a 256 -c SHA256SUMS.txt` dalla cartella dei file per confrontare gli SHA-256, compreso quello del PDF contenuto nello stesso pacchetto.
+
+Il verbale riporta la verifica matematica delle soglie configurate. La qualificazione giuridica delle partecipazioni elettroniche e la valida costituzione dell’assemblea restano da accertare secondo il procedimento concordato con il notaio.

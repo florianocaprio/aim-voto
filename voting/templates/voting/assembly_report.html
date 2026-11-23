@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Verbale assembleare{% endblock %}
+{% block content %}
+<a class="back" href="{% if election.status == 'tallied' %}{% url 'voting:results' election.pk %}{% else %}{% url 'voting:detail' election.pk %}{% endif %}">{{ election.title }}</a>
+<div class="page-heading"><div><p class="mode">Consultazione {{ election.pk }}</p><h1>Verbale assembleare</h1></div></div>
+<section class="card stack narrow">
+    <p>{{ legal_note }}</p>
+    {% if election.status == "tallied" %}
+      <p>Il pacchetto contiene il PDF, i prospetti di supporto e il manifesto SHA-256 di tutti i file.</p>
+      <form method="post" class="stack">
+        {% csrf_token %}
+        {{ form.as_div }}
+        <p class="muted">I dati del verbale vengono salvati per questa consultazione anche al download.</p>
+        <div class="actions">
+          <button class="button" type="submit" name="download" value="pdf">Scarica verbale PDF</button>
+          <button class="button secondary" type="submit" name="download" value="docx">Scarica verbale Word</button>
+          <button class="button secondary" type="submit" name="download" value="preview" formtarget="_blank">Anteprima verbale</button>
+          <button class="button secondary" type="submit" name="download" value="zip">Scarica pacchetto con impronte</button>
+          <button class="button secondary" type="submit" name="download" value="save">Salva dati del verbale</button>
+        </div>
+      </form>
+    {% else %}
+      <p>I file saranno disponibili dopo la pubblicazione dello scrutinio.</p>
+    {% endif %}
+</section>
+{% endblock %}

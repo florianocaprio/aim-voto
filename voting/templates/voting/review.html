@@ -2,17 +2,19 @@
 {% block title %}Riepilogo della scheda{% endblock %}
 {% block content %}
 <section class="narrow stack">
-  <p class="mode">Voto palese (nominativo)</p>
+  <p class="mode">Voto {{ election.get_mode_display|lower }}</p>
   <h1>Riepilogo della scheda</h1>
   <p>{{ election.title }}</p>
+  <p>Scheda per <strong>{{ voter.first_name }} {{ voter.last_name }}</strong> · Matricola {{ voter.external_id }}{% if delegation %} · Delega approvata{% endif %}</p>
   {% if blank %}<p class="alert">Stai per registrare una scheda bianca.</p>{% endif %}
+  {% if not election.allow_replacement %}<p>Una volta confermato, il voto è definitivo.</p>{% endif %}
   <dl class="card list">
     {% for question, selections in summary %}<div><dt>{{ question.text }}</dt><dd>{{ selections|join:", "|default:"Senza risposta" }}</dd></div>{% endfor %}
   </dl>
   <form method="post" action="{% url 'voting:submit' %}" class="actions">{% csrf_token %}
     <input type="hidden" name="payload" value="{{ payload }}">
     <button class="button">{% if replacement %}Conferma sostituzione{% else %}Conferma e registra il voto{% endif %}</button>
-    <a class="button secondary" href="{% url 'voting:ballot' %}{% if replacement %}?modifica=1{% endif %}">Torna alla scheda</a>
+    <a class="button secondary" href="{{ ballot_url }}{% if replacement %}?modifica=1{% endif %}">Torna alla scheda</a>
   </form>
 </section>
 {% endblock %}

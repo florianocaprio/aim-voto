@@ -37,7 +37,7 @@
       <p>Avviata da {{ campaign.author.get_username|default:"Account rimosso" }} il {{ campaign.confirmed_at|date:"d/m/Y H:i" }}.</p>
       {% if campaign.cancelled_at %}<p>Campagna annullata il {{ campaign.cancelled_at|date:"d/m/Y H:i" }}.</p>{% endif %}
       <p>Oggetto: {{ campaign.subject }}</p>
-      <details><summary>Modello del messaggio</summary>{{ campaign.body|linebreaks }}</details>
+      {% if user.is_superuser %}<details><summary>Modello del messaggio</summary>{{ campaign.body|linebreaks }}</details>{% endif %}
       <div class="actions">
         <a class="button secondary" href="{% url 'mailings:campaign' election.pk campaign.pk %}">Aggiorna esiti</a>
         {% if counts.queued %}
@@ -63,7 +63,7 @@
       <tbody>
         {% for row in rows %}
           <tr>
-            <th scope="row">{{ row.voter.first_name }} {{ row.voter.last_name }} <small>{{ row.voter.external_id }}</small></th>
+            <th scope="row"><a href="{% url 'voting:voter_detail' election.pk row.voter_id %}">{{ row.voter.first_name }} {{ row.voter.last_name }}</a> <small>{{ row.voter.external_id }}</small></th>
             <td>{{ row.voter.section }}</td>
             <td>{{ row.voter.email|default:"Mancante" }}</td>
             <td>{{ row.get_state_display }}{% if row.reason %} · {{ row.get_reason_display }}{% endif %}{% if row.state == "uncertain" %}<br><small>Message-ID {{ row.smtp_message_id }}</small>{% endif %}</td>

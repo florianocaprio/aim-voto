@@ -4,15 +4,18 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from voting.services import database_now, is_open, lock_election
+from voting import proxy_access
+from voting.models import Delegation, Election
+from voting.services import database_now, is_delegation_phase, lock_election
 
-from .campaigns import active_link, exclusion, recipients, render_body
+from .campaigns import active_link, exclusion, recipients, render_body, window_exclusion
 from .models import (
     CampaignState,
     DeliveryReason,
     DeliveryState,
     DispatchSchedule,
     EmailDelivery,
+    MailKind,
 )
 from .transport import PreparedMessage, send_local_message
 
@@ -38,7 +41,9 @@ def _skip(delivery, reason, now):
 
 @transaction.atomic
 def _claim(delivery_id, election_id):
-    election = lock_election(election_id)
+    election = lock_election(election_id, allow_missing=True)
+    if election is None:
+        return None
     delivery = (
         EmailDelivery.objects.select_for_update()
         .select_related("campaign")
@@ -52,24 +57,50 @@ def _claim(delivery_id, election_id):
     now = database_now()
     if delivery is None or delivery.available_at > now:
         return None
+    if delivery.kind == MailKind.PROXY and is_delegation_phase(election, now):
+        return None
     if delivery.campaign.state == CampaignState.CANCELLED:
         _skip(delivery, DeliveryReason.CANCELLED, now)
         return None
-    voter = recipients(election, delivery.kind, rows=delivery.campaign).get(
-        pk=delivery.voter_id
+    audience = (
+        election.voters
+        if delivery.kind == MailKind.RESULTS
+        else recipients(election, delivery.kind, rows=delivery.campaign)
     )
+    voter = audience.get(pk=delivery.voter_id)
     reason = exclusion(election, delivery.kind, voter, now)
     if reason:
         _skip(delivery, reason, now)
         return None
-    link = active_link(voter)
-    if not link:
+    represented = None
+    if delivery.kind == MailKind.RESULTS:
+        link = ""
+    elif delivery.kind == MailKind.PROXY:
+        delegation = (
+            Delegation.objects.select_related("grantor")
+            .filter(
+                pk=delivery.delegation_id,
+                grantor__election=election,
+                delegate=voter,
+                state=Delegation.State.APPROVED,
+            )
+            .first()
+        )
+        if delegation is None or not election.allow_delegations:
+            _skip(delivery, DeliveryReason.INVALID_DELEGATION, now)
+            return None
+        represented = delegation.grantor
+        link = proxy_access.link(delegation, voter.credential)
+    else:
+        link = active_link(voter)
+    if delivery.kind != MailKind.RESULTS and not link:
         _skip(delivery, DeliveryReason.INVALID_CREDENTIAL, now)
         return None
     schedule, _ = DispatchSchedule.objects.select_for_update().get_or_create(pk=1)
     now = database_now()
-    if not is_open(election, now):
-        _skip(delivery, DeliveryReason.CLOSED, now)
+    reason = window_exclusion(election, delivery.kind, now)
+    if reason:
+        _skip(delivery, reason, now)
         return None
     if schedule.next_at > now:
         delivery.available_at = schedule.next_at
@@ -87,13 +118,14 @@ def _claim(delivery_id, election_id):
         delivery.smtp_message_id,
         voter.email,
         delivery.campaign.subject,
-        render_body(delivery.campaign, voter, link),
+        render_body(delivery.campaign, voter, link, represented=represented),
     )
 
 
 @transaction.atomic
 def _finish(prepared, election_id, outcome):
-    lock_election(election_id)
+    if lock_election(election_id, allow_missing=True) is None:
+        return
     delivery = (
         EmailDelivery.objects.select_for_update()
         .select_related("campaign")
@@ -120,9 +152,13 @@ def _finish(prepared, election_id, outcome):
 
 
 def process_next():
+    now = timezone.now()
     candidate = (
-        EmailDelivery.objects.filter(
-            state=DeliveryState.QUEUED, available_at__lte=timezone.now()
+        EmailDelivery.objects.filter(state=DeliveryState.QUEUED, available_at__lte=now)
+        .exclude(
+            kind=MailKind.PROXY,
+            campaign__election__status=Election.Status.DELEGATIONS,
+            campaign__election__closes_at__gt=now,
         )
         .order_by("available_at", "pk")
         .values_list("pk", "campaign__election_id")

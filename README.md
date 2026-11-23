@@ -1,6 +1,6 @@
 # AIM Voto
 
-AIM Voto gestisce consultazioni online per Angeli in Moto ODV. Il primo MVP registra voti **palesi e nominativi**. La scheda resta associata al socio. Il voto segreto è disabilitato. L'ambiente di sviluppo usa esclusivamente anagrafiche sintetiche e Mailpit.
+AIM Voto gestisce consultazioni online per Angeli in Moto ODV con voto **Palese (nominativo)** o **Segreto**, presenze e deleghe. Nel palese i PDF riportano i votanti e le loro scelte. Nel segreto il database conserva separatamente la partecipazione e le schede cifrate. I PDF riportano gli aventi diritto e i risultati aggregati. L'ambiente di sviluppo usa esclusivamente anagrafiche sintetiche e Mailpit.
 
 ## Avvio locale
 
@@ -15,18 +15,21 @@ Il primo comando crea `.env` con permessi 0600, genera segreti distinti e conser
 
 L’applicazione usa la porta 8000 e Mailpit la porta 8025, entrambe su `127.0.0.1`. PostgreSQL e SMTP sono raggiungibili all’interno della rete di Compose. Usa lo stesso host configurato in `AIM_BASE_URL` quando condividi un link tra finestre locali. [AIM Voto](http://localhost:8000) · [Mailpit](http://localhost:8025)
 
-Crea l’account amministrativo da un secondo terminale.
+Crea e abilita l’account superadmin da un secondo terminale, per una nuova installazione.
 
 ```sh
-docker compose exec web python manage.py create_staff responsabile-demo
+docker compose exec web python manage.py create_staff superadmin
+docker compose exec web python manage.py promote_staff superadmin
 ```
 
 Digita due volte una password unica di almeno 14 caratteri. L’inserimento è mascherato e Django conserva l’hash della password. Usa l’account creato per accedere alla gestione. [Accesso amministrativo](http://localhost:8000/account/accesso/)
 
+Su un’installazione con l’account `responsabile-demo`, puoi mantenere lo stesso account e la stessa password con `docker compose exec web python manage.py promote_staff responsabile-demo --rename superadmin`. Dopo l’accesso usa **Amministratori** per creare profili globali o limitati alle consultazioni che selezioni.
+
 Per provare MFA, configura il dispositivo in un terminale privato, imposta `REQUIRE_ADMIN_MFA=1` in `.env` e ricrea il web.
 
 ```sh
-docker compose exec web python manage.py enroll_staff_totp responsabile-demo
+docker compose exec web python manage.py enroll_staff_totp superadmin
 docker compose up -d web
 ```
 
@@ -34,8 +37,8 @@ L'app di autenticazione accetta la chiave alfanumerica con parametri TOTP a 6 ci
 
 ## Scenario dimostrativo
 
-1. In **Soci**, scarica il **CSV con tre soci dimostrativi**. Carica il file, associa le colonne, verifica le righe e conferma. Il comando `docker compose exec web python manage.py seed_demo` è un percorso alternativo per generare i soci sintetici.
-2. Crea una consultazione con chiusura futura e un quesito a scelta singola. Conferma la platea dei tre soci, controlla l'anteprima e apri la consultazione. Seleziona **Prepara inviti email** e conferma l’accodamento.
+1. Crea una consultazione con chiusura futura. Nella bozza apri **Aventi diritto**. Con **Aggiungi elettore** compili nome, cognome, matricola ed email. Per la prova con tre posizioni, scegli **Importa CSV**, scarica il **CSV con tre elettori dimostrativi**, caricalo e conferma l’anteprima. In alternativa, esegui `docker compose exec web python manage.py seed_demo ID_CONSULTAZIONE` con l’ID numerico della bozza.
+2. Aggiungi un quesito a scelta singola. Controlla la platea e l’anteprima della scheda, poi apri la consultazione. Seleziona **Prepara inviti email** e conferma l’accodamento.
 3. In Mailpit, apri gli inviti di due soci in contesti separati del browser. Registra due schede e poi sostituisci il voto di uno dei due. Nel pannello **Elettori della votazione** prova **Copia link personale** e confronta il collegamento con quello del relativo invito.
 4. Apri **Invia sollecito ai non votanti**, controlla che l'unico destinatario sia il terzo socio e conferma. Attendi un solo nuovo messaggio in Mailpit, con lo stesso link personale del primo invito del terzo socio.
 5. Chiudi la consultazione e pubblica lo scrutinio. Verifica due votanti e due schede correnti. I conteggi usano l'ultima scelta del socio che ha sostituito il voto.
@@ -64,6 +67,8 @@ La CI esegue i medesimi controlli e analizza la cronologia Git con Gitleaks. `do
 - In Chrome sono stati importati tre soci sintetici e ricevuti i tre inviti in Mailpit. Dopo due voti e una sostituzione, il sollecito ha prodotto un solo nuovo messaggio con il link personale già assegnato al terzo socio. Lo scrutinio ha contato due votanti e due schede correnti, usando la scelta sostitutiva. Sono state verificate le esportazioni PDF e CSV.
 - La copia del link negli appunti è stata verificata in Chrome. L'interfaccia elettore è stata provata con l'emulazione di iPhone 13 e Pixel 7. Restano da eseguire le prove su telefoni fisici e il collaudo di carico fino a 2.000 elettori.
 - Il dump dimostrativo è stato ripristinato in un database PostgreSQL separato. Il ripristino ha conservato tre soci, tre posizioni elettorali, due schede correnti e tre ricevute, con revisione massima 2.
+- Dopo l’aggiunta di presenze e deleghe, la suite PostgreSQL è passata con 58 test, compresi il cambio di soglia a 501 aventi diritto e le approvazioni concorrenti. Il percorso da conferma presenza a voto per delega è stato provato in Chrome con contesti separati.
+- Con la platea gestita per consultazione, la suite è passata con 62 test. In Chrome sono stati verificati l’inserimento manuale, l’importazione di un CSV a quattro colonne e la consultazione dello storico con la stessa matricola e recapiti distinti.
 
 ## Versioni e dipendenze
 

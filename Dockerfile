@@ -17,4 +17,4 @@ FROM base AS runtime
 COPY --chown=aimvoto:aimvoto . .
 USER aimvoto
 EXPOSE 8000
-CMD ["gunicorn", "--bind=0.0.0.0:8000", "--workers=2", "config.wsgi:application"]
+CMD ["gunicorn", "--bind=0.0.0.0:8000", "--workers=2", "--worker-class=gthread", "--threads=4", "--no-control-socket", "config.wsgi:application"]

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ election.title }}{% endblock %}
+{% block content %}
+<section class="narrow stack">
+  <div>
+    <p class="mode">Aperta per deleghe</p>
+    <h1>{{ election.title }}</h1>
+  </div>
+  <p>Puoi conferire una delega, caricare una delega ricevuta e leggere i documenti.</p>
+  {% if election.opens_at %}<p>Votazione prevista il {{ election.opens_at|date:"d/m/Y alle H:i T" }}.</p>{% endif %}
+  <div><a class="button" href="{% url 'voting:assembly' %}">Deleghe</a></div>
+  {% include "voting/voter_documents.html" %}
+</section>
+{% endblock %}

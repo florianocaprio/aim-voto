@@ -27,7 +27,8 @@ from voting.models import (
     NamedBallot,
     VotingCredential,
 )
-from voting.services import credential_fields, electorate_snapshot, personal_url
+from voting.services import credential_fields, personal_url
+from voting.tests.support import electorate_snapshot
 
 MESSAGE = {
     "subject": "Promemoria di prova",
@@ -63,7 +64,7 @@ def create_voter(election, serial, section="Nord", address=None):
 class CampaignTests(TestCase):
     def setUp(self):
         self.admin = get_user_model().objects.create(
-            username="operatore-demo", is_staff=True
+            username="operatore-demo", is_staff=True, is_superuser=True
         )
         self.election = create_election(self.admin)
         self.client.force_login(self.admin)
@@ -83,6 +84,68 @@ class CampaignTests(TestCase):
 
     def clear_throttle(self):
         DispatchSchedule.objects.update(next_at=timezone.now() - timedelta(seconds=1))
+
+    def test_invitation_template_can_be_edited_before_opening(self):
+        url = reverse("mailings:invite", args=[self.election.pk])
+        self.election.status = Election.Status.DRAFT
+        self.election.save(update_fields=["status"])
+        editor = self.client.get(url)
+        self.assertContains(editor, "Anteprima email di invito")
+        self.assertContains(editor, "Salva modello")
+        self.assertContains(editor, "[link personale aggiunto dal sistema]")
+        self.assertNotContains(editor, 'name="section"')
+
+        form = {"action": "save_template", "subject": "Convocazione di prova"}
+        rejected = self.client.post(url, form | {"body": "https://example.invalid/"})
+        self.assertContains(rejected, "Rimuovi i collegamenti")
+        self.assertFalse(hasattr(self.election, "invitation_template"))
+
+        form["body"] = "Invito sintetico per la prossima consultazione."
+        self.assertRedirects(self.client.post(url, form), url)
+        self.assertEqual(
+            self.client.get(url).context["form"].initial["body"], form["body"]
+        )
+        self.election.status = Election.Status.SCHEDULED
+        self.election.save(update_fields=["status"])
+        form["body"] = "Testo aggiornato durante la programmazione."
+        self.assertRedirects(self.client.post(url, form), url)
+        self.assertContains(self.client.get(url), form["body"])
+        self.assertFalse(self.election.campaigns.exists())
+
+        other_election = create_election(self.admin)
+        other_url = reverse("mailings:invite", args=[other_election.pk])
+        self.assertNotContains(self.client.get(other_url), form["body"])
+        self.election.status = Election.Status.OPEN
+        self.election.save(update_fields=["status"])
+        create_voter(self.election, 1)
+        editor = self.client.get(url)
+        self.assertContains(editor, "Verifica destinatari e messaggio")
+        self.assertEqual(editor.context["form"].initial["subject"], form["subject"])
+        self.assertEqual(editor.context["form"].initial["body"], form["body"])
+        stale = self.client.post(url, form)
+        self.assertContains(stale, "Lo stato della consultazione è cambiato")
+        self.assertFalse(self.election.campaigns.exists())
+
+        form.pop("action")
+        prepared = self.client.post(url, form, follow=True)
+        self.assertContains(prepared, form["body"])
+        campaign = self.election.campaigns.get()
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.invitation_template.body, form["body"])
+        self.assertEqual(campaign.subject, form["subject"])
+        self.assertEqual(campaign.body, form["body"])
+        self.assertEqual(campaign.deliveries.get().state, DeliveryState.PREVIEW)
+
+    def test_reminder_and_resend_editors_render_sample_messages(self):
+        voter = create_voter(self.election, 1)
+        for route, args, label in (
+            ("remind", [self.election.pk], "Promemoria per la consultazione"),
+            ("resend", [self.election.pk, voter.pk], "Reinvio del link personale"),
+        ):
+            with self.subTest(route=route):
+                response = self.client.get(reverse(f"mailings:{route}", args=args))
+                self.assertContains(response, label)
+                self.assertContains(response, "[link personale aggiunto dal sistema]")
 
     def test_reminder_preview_excludes_blank_abstention_and_other_section(self):
         blank, abstention, eligible = [
@@ -293,6 +356,31 @@ class CampaignTests(TestCase):
         )
         self.assertFalse(process_next())
 
+    def test_worker_completes_if_published_election_is_deleted_during_smtp(self):
+        create_voter(self.election, 1)
+        self.election.status = Election.Status.CLOSED
+        self.election.save(update_fields=["status"])
+        pk = self.election.pk
+        publish = reverse("voting:transition", args=[pk, "scrutina"])
+        delete = reverse("voting:transition", args=[pk, "elimina-pubblicata"])
+        self.assertEqual(self.client.post(publish, {"confirm": "yes"}).status_code, 302)
+        delivery = self.election.campaigns.get(kind=MailKind.RESULTS).deliveries.get()
+
+        def delete_while_sending(prepared):
+            self.assertEqual(prepared.delivery_id, delivery.pk)
+            self.assertEqual(
+                self.client.post(delete, {"confirm": "yes"}).status_code, 302
+            )
+            return SmtpOutcome(DeliveryState.ACCEPTED)
+
+        with patch(
+            "mailings.worker.send_local_message", side_effect=delete_while_sending
+        ) as send:
+            self.assertTrue(process_next())
+            send.assert_called_once()
+        self.assertIsNone(_claim(delivery.pk, pk))
+        self.assertFalse(process_next())
+
     def test_post_routes_require_staff_and_scope_to_the_election(self):
         voter = create_voter(self.election, 1)
         campaign = self.preview()
@@ -324,7 +412,7 @@ class CampaignTests(TestCase):
 class ConcurrentWorkersTests(TransactionTestCase):
     def test_workers_claim_a_delivery_only_once(self):
         actor = get_user_model().objects.create(
-            username="operatore-queue", is_staff=True
+            username="operatore-queue", is_staff=True, is_superuser=True
         )
         election = create_election(actor)
         create_voter(election, 1)

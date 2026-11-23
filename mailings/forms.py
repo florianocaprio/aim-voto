@@ -37,10 +37,12 @@ class CampaignForm(forms.Form):
     )
     section = forms.ChoiceField(label="Sezione", required=False)
 
-    def __init__(self, *args, kind, sections, **kwargs):
+    def __init__(self, *args, kind, sections, template=None, **kwargs):
         subject, body = DEFAULT_MESSAGES[kind]
+        if template is not None:
+            subject, body = template.subject, template.body
         super().__init__(*args, initial={"subject": subject, "body": body}, **kwargs)
-        if kind == MailKind.RESEND:
+        if kind == MailKind.RESEND or sections is None:
             del self.fields["section"]
         else:
             self.fields["section"].choices = [

@@ -9,6 +9,7 @@
   {% elif election %}
     <h1>{% if election.status == "cancelled" %}Consultazione annullata{% else %}Votazione chiusa{% endif %}</h1>
     <p>La registrazione di nuove schede è terminata.</p>
+    {% if election.status == "closed" %}<p>Lo scrutinio è in attesa di pubblicazione.</p>{% endif %}
   {% else %}
     <h1>Usa il tuo link personale</h1><p>Apri il link più recente ricevuto dall’associazione per accedere alla scheda.</p>
   {% endif %}

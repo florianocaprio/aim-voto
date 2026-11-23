@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Deleghe{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:ballot' %}">{% if is_open %}Torna alla tua scheda{% else %}Torna alla consultazione{% endif %}</a>
+<div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>Deleghe</h1></div></div>
+<div class="stack narrow">
+  {% if election.allow_delegations %}
+  <section class="card stack">
+    <h2>La tua delega</h2>
+    {% if last_request %}
+      <p>Ultima delega a {{ last_request.delegate.first_name }} {{ last_request.delegate.last_name }} · {{ last_request.get_state_display }}</p>
+    {% endif %}
+    {% if delegations_open %}
+      {% if active %}
+        <p>Puoi revocare la delega fino alla registrazione della prima scheda da parte del delegato.</p>
+        <form method="post" action="{% url 'voting:voter_revoke' active.pk %}">{% csrf_token %}<button class="button secondary">Revoca la delega</button></form>
+      {% elif election.require_presence %}
+        {% if not has_voted %}
+          <div><a class="button" href="{% url 'voting:find_delegate' %}">Cerca un socio a cui delegare</a></div>
+        {% endif %}
+      {% else %}
+        <form method="post" class="stack">{% csrf_token %}
+          <div><label for="delegate-id">ID socio della persona a cui deleghi il voto</label><input id="delegate-id" name="external_id" maxlength="64" required></div>
+          <div><button class="button" name="action" value="delegate">Presenta la delega per la verifica</button></div>
+        </form>
+      {% endif %}
+    {% endif %}
+  </section>
+  <section class="card stack">
+    <h2>Deleghe ricevute con documento</h2>
+    {% if delegations_open %}<div><a class="button" href="{% url 'voting:received_delegation' %}">Presenta una delega ricevuta</a></div>{% endif %}
+    {% for item in documented %}
+      <div class="actions">
+        <span>{{ item.grantor.first_name }} {{ item.grantor.last_name }} · {{ item.get_state_display }}</span>
+        {% if item.state == "approved" %}
+          {% include "voting/delegation_action.html" %}
+        {% elif delegations_open and item.state == "pending" %}
+          <form method="post" action="{% url 'voting:voter_revoke' item.pk %}">{% csrf_token %}<button class="button secondary">Ritira richiesta</button></form>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </section>
+  {% if received %}
+  <section class="card stack">
+    <h2>Deleghe che puoi esercitare</h2>
+    {% for item in received %}
+      <div class="actions">
+        <span>{{ item.grantor.first_name }} {{ item.grantor.last_name }}</span>
+        {% include "voting/delegation_action.html" %}
+      </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% else %}
+    <p>Le deleghe non sono previste per questa consultazione.</p>
+  {% endif %}
+</div>
+{% endblock %}

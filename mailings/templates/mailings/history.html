@@ -7,8 +7,10 @@
 </header>
 <div class="stack">
   <div class="actions">
+    {% if user.is_superuser and voting_open %}
     <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Prepara inviti</a>
     <a class="button" href="{% url 'mailings:remind' election.pk %}">Invia sollecito ai non votanti</a>
+    {% endif %}
   </div>
   <section class="card table-wrap">
     <h2>Campagne</h2>

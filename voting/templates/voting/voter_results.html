@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Risultati · {{ election.title }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="mode">Votazione chiusa · Scrutinio pubblicato</p><h1>{{ election.title }}</h1></div>
+</div>
+{% include "voting/results_summary.html" %}
+{% endblock %}
