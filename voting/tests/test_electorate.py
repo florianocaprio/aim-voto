@@ -27,6 +27,7 @@ class ElectorateTests(TestCase):
         index = self.client.get(self.list_url)
         self.assertContains(index, "Aggiungi elettore")
         self.assertContains(index, "Importa CSV")
+        self.assertNotContains(index, "data-voter-auto-refresh")
         self.assertEqual(self.client.get("/gestione/soci/").status_code, 404)
         self.assertRedirects(self.client.post(self.add_url, self.data), self.list_url)
         self.assertContains(
@@ -158,6 +159,7 @@ class ElectorateTests(TestCase):
         NamedBallot.objects.create(voter=represented, cast_by=direct)
 
         pending_first = self.client.get(self.list_url, {"sort": "to-finish"})
+        self.assertContains(pending_first, "data-voter-auto-refresh")
         expected = [delegate, absent, submitted, delegated, direct, represented]
         self.assertEqual(list(pending_first.context["page"]), expected)
         done_first = self.client.get(self.list_url, {"sort": "finished"})
