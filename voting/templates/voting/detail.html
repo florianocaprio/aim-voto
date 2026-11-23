@@ -43,8 +43,11 @@
   <section class="card stack">
     <h2>Elettori e comunicazioni</h2>
     <div class="actions">
-      {% if election.status == "draft" %}<a class="button" href="{% url 'voting:electorate' election.pk %}">Componi la platea</a>{% endif %}
-      <a class="button secondary" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
+      {% if election.status == "draft" %}
+        <a class="button" href="{% url 'voting:voters' election.pk %}">Aventi diritto</a>
+      {% else %}
+        <a class="button secondary" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
+      {% endif %}
       {% if election.opened_at %}<a class="button secondary" href="{% url 'voting:manage_assembly' election.pk %}">Presenze e deleghe</a>{% endif %}
       {% if is_open %}
         <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Prepara inviti email</a>

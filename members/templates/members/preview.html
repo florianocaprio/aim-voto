@@ -1,12 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Anteprima importazione · AIM Voto{% endblock %}
 {% block content %}
+<a class="back" href="{% url 'voting:voters' election.pk %}">Aventi diritto · {{ election.title }}</a>
 <header class="page-heading">
     <h1>Anteprima importazione</h1>
-    <p>Controlla i nuovi record e quelli da aggiornare. L’ID socio identifica il record esistente anche quando cambia l’email.</p>
+    <p>La matricola identifica l’elettore in questa consultazione. Le matricole già presenti saranno aggiornate. Le altre posizioni della platea restano in elenco.</p>
 </header>
 {% if changed %}
     <p class="alert" role="alert">L’anteprima è cambiata. Verifica le righe e conferma di nuovo.</p>
+{% endif %}
+{% if preview.over_capacity %}
+    <p class="alert" role="alert">L’importazione supererebbe il limite di {{ max_electorate_size }} elettori nella platea.</p>
 {% endif %}
 {% if summary.errors %}
     <p class="alert" role="alert">Correggi tutte le righe con errori nel file oppure verifica l’associazione delle colonne.</p>
@@ -21,7 +25,7 @@
         <thead>
             <tr>
                 <th scope="col">Riga</th>
-                <th scope="col">ID socio</th>
+                <th scope="col">Matricola</th>
                 <th scope="col">Socio</th>
                 <th scope="col">Email</th>
                 <th scope="col">Cellulare</th>
@@ -56,7 +60,7 @@
         </tbody>
     </table>
 </div>
-{% if not summary.errors %}
+{% if not summary.errors and not preview.over_capacity %}
     <form method="post" class="card stack">
         {% csrf_token %}
         {{ form.as_div }}
@@ -64,7 +68,7 @@
     </form>
 {% endif %}
 <div class="actions">
-    <a class="button secondary" href="{% url 'members:mapping' batch_id=batch.pk %}">Rivedi associazione</a>
-    <a class="button secondary" href="{% url 'members:import' %}">Carica un altro file</a>
+    <a class="button secondary" href="{% url 'members:mapping' election.pk batch.pk %}">Rivedi associazione</a>
+    <a class="button secondary" href="{% url 'members:import' election.pk %}">Carica un altro file</a>
 </div>
 {% endblock %}

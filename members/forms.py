@@ -62,8 +62,8 @@ class MappingForm(forms.Form):
                 choices=[("", "Non associata")] + options,
                 required=name not in OPTIONAL_FIELDS,
                 help_text=(
-                    "Se non associ questa colonna, i cellulari già registrati vengono conservati."
-                    if name == "phone"
+                    "Lascia la colonna senza associazione per conservare il valore già registrato."
+                    if name in OPTIONAL_FIELDS
                     else None
                 ),
             )

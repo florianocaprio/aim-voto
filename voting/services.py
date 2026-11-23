@@ -12,10 +12,10 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
 from .models import (
+    MAX_ELECTORATE_SIZE,
     AuditEvent,
     Delegation,
     Election,
-    ElectionVoter,
     NamedBallot,
     Question,
     RateBucket,
@@ -85,8 +85,13 @@ def open_locked(election, *, actor=None, now=None):
         raise ValidationError("Il voto segreto non è disponibile.")
     if now >= election.closes_at:
         raise ValidationError("La scadenza è già trascorsa.")
-    if not election.questions.exists() or not election.voters.exists():
+    electorate_size = election.voters.count()
+    if not election.questions.exists() or not electorate_size:
         raise ValidationError("Inserisci almeno un quesito e un elettore.")
+    if electorate_size > MAX_ELECTORATE_SIZE:
+        raise ValidationError(
+            f"La platea può contenere al massimo {MAX_ELECTORATE_SIZE} elettori."
+        )
     credentials = (
         VotingCredential(voter_id=voter_id, **credential_fields())
         for voter_id in election.voters.values_list("pk", flat=True).iterator()
@@ -309,25 +314,3 @@ def record_ballot(
             },
         )
     return receipt, True
-
-
-def electorate_snapshot(member):
-    return {
-        field: getattr(member, field)
-        for field in (
-            "external_id",
-            "first_name",
-            "last_name",
-            "email",
-            "phone",
-            "section",
-        )
-    }
-
-
-def set_electorate(election, members):
-    ElectionVoter.objects.filter(election=election).delete()
-    ElectionVoter.objects.bulk_create(
-        ElectionVoter(election=election, member=member, **electorate_snapshot(member))
-        for member in members
-    )

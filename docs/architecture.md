@@ -3,7 +3,7 @@
 AIM Voto è un monolite Django con template HTML e JavaScript locale. Gunicorn serve il web e WhiteNoise gli asset. Un processo Django separato elabora la coda e aggiorna le consultazioni programmate. Entrambi condividono PostgreSQL. In sviluppo il worker apre connessioni SMTP solo verso Mailpit o loopback e ammette mittente e destinatari dimostrativi `@example.invalid`. Il browser usa il sito Django e, nel percorso di voto, richiede JavaScript per scambiare il link personale con una sessione.
 
 - `config` gestisce configurazione, accesso staff, MFA, limiti di richiesta e avvio.
-- `members` valida e importa l'anagrafica. L'anteprima appartiene all'operatore che l'ha caricata. Alla conferma una transazione serializza le importazioni e verifica l'impronta dell'anteprima; una variazione dei dati richiede una nuova conferma.
+- `members` valida i file e importa gli aventi diritto nella bozza selezionata. L'anteprima appartiene all'operatore e alla consultazione. La conferma usa lo stesso lock della consultazione usato per inserimento manuale e apertura. Una variazione dei dati rilevanti richiede una nuova conferma.
 - `voting` gestisce consultazioni, credenziali, voto nominativo, partecipazione e scrutinio.
 - `mailings` compone le anteprime, congela la selezione confermata e gestisce gli invii. PostgreSQL è anche la coda persistente, sufficiente per il primo rilascio e monitorabile con gli strumenti del database.
 

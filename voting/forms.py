@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import datetime
 from typing import ClassVar
 
@@ -5,7 +6,9 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from .models import Election, ElectionDocument, Question
+from members.importing import PHONE_FORMAT, cell_text
+
+from .models import Election, ElectionDocument, ElectionVoter, Question
 
 
 class RomeDateTimeField(forms.DateTimeField):
@@ -105,18 +108,51 @@ class QuestionForm(forms.Form):
         return cleaned
 
 
-class ElectorateForm(forms.Form):
-    section = forms.CharField(label="Intera sezione", required=False, max_length=100)
-    ids = forms.CharField(
-        label="ID socio da includere",
-        required=False,
-        max_length=150000,
-        widget=forms.Textarea(attrs={"rows": 6, "placeholder": "Un ID socio per riga"}),
-        help_text="Aggiungi singoli soci anche da altre sezioni. Lascia vuoti i due campi per includere tutta l’anagrafica.",
-    )
-    confirm = forms.BooleanField(
-        label="Confermo la sostituzione della platea della bozza"
-    )
+class VoterForm(forms.ModelForm):
+    email = forms.EmailField(label="Email")
+
+    class Meta:
+        model = ElectionVoter
+        fields: ClassVar = [
+            "first_name",
+            "last_name",
+            "external_id",
+            "email",
+            "phone",
+            "section",
+        ]
+        labels: ClassVar = {
+            "first_name": "Nome",
+            "last_name": "Cognome",
+            "external_id": "Matricola",
+            "phone": "Cellulare (facoltativo)",
+            "section": "Sezione (facoltativa)",
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        for field, value in list(cleaned.items()):
+            if any(unicodedata.category(char) == "Cc" for char in value):
+                self.add_error(field, "Il valore contiene caratteri di controllo.")
+            else:
+                cleaned[field] = cell_text(value)
+        phone = cleaned.get("phone")
+        if phone and not PHONE_FORMAT.fullmatch(phone):
+            self.add_error("phone", "Inserisci un numero di cellulare valido.")
+        matricola = cleaned.get("external_id")
+        if (
+            matricola
+            and ElectionVoter.objects.filter(
+                election=self.instance.election,
+                external_id=matricola,
+            )
+            .exclude(pk=self.instance.pk)
+            .exists()
+        ):
+            self.add_error(
+                "external_id", "La matricola è già presente in questa consultazione."
+            )
+        return cleaned
 
 
 class DocumentForm(forms.Form):

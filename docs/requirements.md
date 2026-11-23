@@ -8,7 +8,7 @@ Il primo rilascio implementa il **voto palese e nominativo**. La scheda è colle
 
 | Area | Requisito operativo |
 | --- | --- |
-| Anagrafica | ID interno e ID socio esterno univoco, nome, cognome, email, cellulare facoltativo e sezione. Importazione CSV e XLSX con modelli scaricabili, associazione delle colonne, validazione per riga e conferma. |
+| Platea | Inserimento manuale o importazione CSV e XLSX in bozza, con associazione delle colonne, validazione per riga e conferma. Nome, cognome, matricola univoca nella consultazione ed email sono obbligatori. Cellulare e sezione sono facoltativi. |
 | Consultazione | Titolo, descrizione, documenti PDF privati, platea da 1 a 2.000 soci, apertura manuale o programmata, scadenza anche su più giorni, voto sostituibile per impostazione iniziale. Date presentate in Europe/Rome e archiviate come istanti UTC. |
 | Quesiti | Mozione con Favorevole, Contrario e Astenuto, scelta singola, scelta multipla e selezione di candidati. Il server valida appartenenza e numero delle preferenze. |
 | Accesso degli elettori | Credenziale personale riutilizzabile durante l’apertura, con 256 bit di casualità. Il browser la scambia con una sessione circoscritta alla consultazione, al socio e alla versione della credenziale. |
@@ -22,8 +22,8 @@ Il primo rilascio implementa il **voto palese e nominativo**. La scheda è colle
 
 ## Regole applicative
 
-- L’ID socio esterno identifica la persona anche se cambia email. L’importazione segnala gli indirizzi condivisi e mantiene separate le posizioni. Gli ID duplicati nel file bloccano la conferma. Dopo la correzione degli errori e la conferma, il sistema applica tutte le righe in una sola transazione.
-- La platea si forma per consultazione. All’apertura restano fissati soci, quesiti, opzioni e regole. Per correggere un recapito si usa l’azione dedicata sulla posizione elettorale. Le modifiche all’anagrafica generale valgono per le successive composizioni della platea.
+- La matricola identifica la posizione nella stessa consultazione anche se cambia email. L’importazione segnala gli indirizzi condivisi e mantiene separate le posizioni. Le matricole duplicate nel file bloccano la conferma. Dopo la correzione degli errori e la conferma, il sistema applica tutte le righe in una sola transazione.
+- All’apertura restano fissati aventi diritto, quesiti, opzioni e regole. Per correggere un recapito si usa l’azione dedicata sulla posizione elettorale. Una consultazione conclusa conserva i dati degli elettori usati per quella votazione.
 - L’apertura del link consente di consultare la scheda. Per registrarla occorrono riepilogo e conferma esplicita. L’accesso, l’acquisizione della scheda e l’eventuale presenza assembleare sono eventi distinti.
 - Per ogni socio si conta l’ultima scheda validamente registrata prima della chiusura. Una nuova scheda sostituisce per intero la precedente al termine della transazione. Una richiesta ripetuta può recuperare la stessa ricevuta e una conferma con revisione superata richiede una nuova compilazione.
 - Una scheda bianca è un invio valido con tutti i quesiti vuoti. Una risposta mancante è un quesito lasciato vuoto in una scheda acquisita. **Astenuto** è una preferenza esplicita del quesito a mozione. Il mancato invio resta registrato come mancata partecipazione al voto.

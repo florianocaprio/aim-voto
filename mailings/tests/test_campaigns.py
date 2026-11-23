@@ -27,7 +27,8 @@ from voting.models import (
     NamedBallot,
     VotingCredential,
 )
-from voting.services import credential_fields, electorate_snapshot, personal_url
+from voting.services import credential_fields, personal_url
+from voting.tests.support import electorate_snapshot
 
 MESSAGE = {
     "subject": "Promemoria di prova",

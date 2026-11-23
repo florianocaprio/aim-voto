@@ -13,7 +13,9 @@ def health(request):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
     except DatabaseError:
-        return HttpResponse("database unavailable", status=503, content_type="text/plain")
+        return HttpResponse(
+            "database unavailable", status=503, content_type="text/plain"
+        )
     return HttpResponse("ok", content_type="text/plain")
 
 
@@ -22,7 +24,7 @@ urlpatterns = [
     path("account/accesso/", StaffLogin.as_view(), name="staff_login"),
     path("account/uscita/", StaffLogout.as_view(), name="staff_logout"),
     path("account/verifica/", staff_otp, name="staff_otp"),
-    path("gestione/soci/", include("members.urls")),
     path("gestione/invii/", include("mailings.urls")),
+    path("gestione/<int:pk>/elettori/importa/", include("members.urls")),
     path("", include("voting.urls")),
 ]

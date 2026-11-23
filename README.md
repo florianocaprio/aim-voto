@@ -34,8 +34,8 @@ L'app di autenticazione accetta la chiave alfanumerica con parametri TOTP a 6 ci
 
 ## Scenario dimostrativo
 
-1. In **Soci**, scarica il **CSV con tre soci dimostrativi**. Carica il file, associa le colonne, verifica le righe e conferma. Il comando `docker compose exec web python manage.py seed_demo` è un percorso alternativo per generare i soci sintetici.
-2. Crea una consultazione con chiusura futura e un quesito a scelta singola. Conferma la platea dei tre soci, controlla l'anteprima e apri la consultazione. Seleziona **Prepara inviti email** e conferma l’accodamento.
+1. Crea una consultazione con chiusura futura. Nella bozza apri **Aventi diritto**. Con **Aggiungi elettore** compili nome, cognome, matricola ed email. Per la prova con tre posizioni, scegli **Importa CSV**, scarica il **CSV con tre elettori dimostrativi**, caricalo e conferma l’anteprima. In alternativa, esegui `docker compose exec web python manage.py seed_demo ID_CONSULTAZIONE` con l’ID numerico della bozza.
+2. Aggiungi un quesito a scelta singola. Controlla la platea e l’anteprima della scheda, poi apri la consultazione. Seleziona **Prepara inviti email** e conferma l’accodamento.
 3. In Mailpit, apri gli inviti di due soci in contesti separati del browser. Registra due schede e poi sostituisci il voto di uno dei due. Nel pannello **Elettori della votazione** prova **Copia link personale** e confronta il collegamento con quello del relativo invito.
 4. Apri **Invia sollecito ai non votanti**, controlla che l'unico destinatario sia il terzo socio e conferma. Attendi un solo nuovo messaggio in Mailpit, con lo stesso link personale del primo invito del terzo socio.
 5. Chiudi la consultazione e pubblica lo scrutinio. Verifica due votanti e due schede correnti. I conteggi usano l'ultima scelta del socio che ha sostituito il voto.
@@ -65,6 +65,7 @@ La CI esegue i medesimi controlli e analizza la cronologia Git con Gitleaks. `do
 - La copia del link negli appunti è stata verificata in Chrome. L'interfaccia elettore è stata provata con l'emulazione di iPhone 13 e Pixel 7. Restano da eseguire le prove su telefoni fisici e il collaudo di carico fino a 2.000 elettori.
 - Il dump dimostrativo è stato ripristinato in un database PostgreSQL separato. Il ripristino ha conservato tre soci, tre posizioni elettorali, due schede correnti e tre ricevute, con revisione massima 2.
 - Dopo l’aggiunta di presenze e deleghe, la suite PostgreSQL è passata con 58 test, compresi il cambio di soglia a 501 aventi diritto e le approvazioni concorrenti. Il percorso da conferma presenza a voto per delega è stato provato in Chrome con contesti separati.
+- Con la platea gestita per consultazione, la suite è passata con 62 test. In Chrome sono stati verificati l’inserimento manuale, l’importazione di un CSV a quattro colonne e la consultazione dello storico con la stessa matricola e recapiti distinti.
 
 ## Versioni e dipendenze
 

@@ -2,12 +2,12 @@
 
 | Entità | Dati principali e vincoli |
 | --- | --- |
-| `Member` | ID interno, ID esterno stabile e univoco, nome, cognome, email, cellulare opzionale e sezione. Le email possono essere condivise. |
-| `ImportBatch` | Righe caricate temporaneamente, mappatura, autore, scadenza e riepilogo. La conferma svuota i dati di anteprima. |
+| `Member` | Anagrafica preesistente, conservata per i riferimenti storici. |
+| `ImportBatch` | Consultazione, righe caricate temporaneamente, mappatura, autore, scadenza e riepilogo. La conferma svuota i dati di anteprima. |
 | `Election` | Titolo, descrizione, calendario, modalità palese vincolata, stato, regola di sostituzione e intervallo dei solleciti. |
 | `Question`, `Choice` | Quesiti e relative opzioni. Il tipo determina il massimo di preferenze. |
 | `ElectionDocument` | PDF privato associato alla consultazione, servito come allegato dopo verifica dell'autorizzazione. |
-| `ElectionVoter` | Una posizione per coppia socio-consultazione. Fotografa ID esterno, generalità, sezione e recapiti. Le correzioni dei recapiti hanno un flusso dedicato. |
+| `ElectionVoter` | Una posizione autonoma per coppia consultazione-matricola. Conserva generalità, sezione e recapiti usati nella votazione. Le posizioni preesistenti mantengono il riferimento facoltativo a `Member`. |
 | `VotingCredential` | Una credenziale attiva per posizione. Il digest SHA-256 è univoco e indicizzato. Il valore cifrato Fernet consente il recupero autorizzato. La versione invalida le sessioni precedenti dopo una revoca. |
 | `VoterPresence` | Una conferma con data e ora per posizione elettorale. |
 | `Delegation` | Delegante, delegato, data e stato della richiesta. Vincoli per persone distinte e una sola richiesta attiva per delegante. Servizi e lock verificano la platea comune e la capienza del delegato. |

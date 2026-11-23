@@ -4,6 +4,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+MAX_ELECTORATE_SIZE = 2000
+
 
 class Election(models.Model):
     class Status(models.TextChoices):
@@ -91,19 +93,24 @@ class ElectionVoter(models.Model):
     election = models.ForeignKey(
         Election, on_delete=models.CASCADE, related_name="voters"
     )
-    member = models.ForeignKey("members.Member", on_delete=models.PROTECT)
+    member = models.ForeignKey(
+        "members.Member", on_delete=models.PROTECT, null=True, blank=True
+    )
     external_id = models.CharField(max_length=64)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=32, blank=True)
-    section = models.CharField(max_length=100)
+    section = models.CharField(max_length=100, blank=True)
 
     class Meta:
         ordering: ClassVar = ["last_name", "first_name", "pk"]
         constraints: ClassVar = [
             models.UniqueConstraint(
                 fields=["election", "member"], name="one_place_per_member"
+            ),
+            models.UniqueConstraint(
+                fields=["election", "external_id"], name="one_matricola_per_election"
             ),
         ]
 

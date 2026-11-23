@@ -11,28 +11,35 @@ from zipfile import BadZipFile, ZipFile
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import fromstring
 from django.core.exceptions import ValidationError
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare, salted_hmac
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
-from voting.services import audit
+from voting.models import MAX_ELECTORATE_SIZE, Election, ElectionVoter
+from voting.services import audit, lock_election
 
-from .models import ImportBatch, Member
+from .models import ImportBatch
 
 IMPORT_FIELDS = {
-    "external_id": "ID socio",
+    "external_id": "Matricola",
     "first_name": "Nome",
     "last_name": "Cognome",
     "email": "Email",
     "phone": "Cellulare",
     "section": "Sezione",
 }
-OPTIONAL_FIELDS = {"phone"}
+OPTIONAL_FIELDS = {"phone", "section"}
 HEADER_ALIASES = {
-    "external_id": ("id socio", "id socio esterno", "external id", "codice socio"),
+    "external_id": (
+        "matricola",
+        "id socio",
+        "id socio esterno",
+        "external id",
+        "codice socio",
+    ),
     "first_name": ("nome", "name", "first name"),
     "last_name": ("cognome", "surname", "last name"),
     "email": ("email", "e mail", "posta elettronica"),
@@ -47,7 +54,6 @@ MAX_ROWS = 5_000
 MAX_COLUMNS = 32
 MAX_CELL_LENGTH = 512
 PHONE_FORMAT = re.compile(r"\+?[0-9][0-9 ()./\-]{3,31}")
-IMPORT_CONFIRM_LOCK = (7396, 1)
 STATUS_NEW = "new"
 STATUS_UPDATE = "updated"
 STATUS_UNCHANGED = "unchanged"
@@ -72,6 +78,7 @@ class Preview:
     rows: list[RowPreview]
     summary: dict[str, int]
     fingerprint: str
+    over_capacity: bool
 
 
 def cell_text(value):
@@ -261,7 +268,7 @@ def preview_row(record, mapping):
     for name, index in mapping.items():
         values[name] = cells[index] if index is not None and index < len(cells) else ""
         label = IMPORT_FIELDS[name]
-        model_field = Member._meta.get_field(name)
+        model_field = ElectionVoter._meta.get_field(name)
         if index in record["non_text"]:
             row.errors.append(
                 f"{label} deve essere memorizzato come testo nel foglio XLSX."
@@ -269,6 +276,9 @@ def preview_row(record, mapping):
             continue
         if any(unicodedata.category(char) == "Cc" for char in values[name]):
             row.errors.append(f"{label} contiene caratteri di controllo.")
+            continue
+        if name == "email" and not values[name]:
+            row.errors.append("Email. Questo campo è obbligatorio.")
             continue
         try:
             model_field.clean(values[name], None)
@@ -289,16 +299,20 @@ def build_preview(batch):
     for row in rows:
         if id_counts[row.values["external_id"]] > 1:
             row.errors.append(
-                "ID socio ripetuto nel file. Correggi tutte le occorrenze prima di confermare."
+                "Matricola ripetuta nel file. Correggi tutte le occorrenze prima di confermare."
             )
     valid_rows = [row for row in rows if not row.errors]
-    existing = Member.objects.in_bulk(
-        [row.values["external_id"] for row in valid_rows], field_name="external_id"
-    )
+    electorate = ElectionVoter.objects.filter(election_id=batch.election_id)
+    existing = {
+        voter.external_id: voter
+        for voter in electorate.filter(
+            external_id__in=[row.values["external_id"] for row in valid_rows]
+        )
+    }
     email_keys = [row.values["email"].lower() for row in valid_rows]
     final_owners = defaultdict(set)
     matching_emails = (
-        Member.objects.annotate(email_key=Lower("email"))
+        electorate.annotate(email_key=Lower("email"))
         .filter(email_key__in=email_keys)
         .values_list("email_key", "external_id")
     )
@@ -325,8 +339,9 @@ def build_preview(batch):
         member = existing.get(row.values["external_id"])
         if member:
             row.previous = {name: getattr(member, name) for name in IMPORT_FIELDS}
-            if batch.mapping["phone"] is None:
-                row.values["phone"] = member.phone
+            for field in OPTIONAL_FIELDS:
+                if batch.mapping[field] is None:
+                    row.values[field] = getattr(member, field)
             row.status = (
                 STATUS_UNCHANGED if row.previous == row.values else STATUS_UPDATE
             )
@@ -352,36 +367,48 @@ def build_preview(batch):
     fingerprint = salted_hmac(
         f"members.import:{batch.pk}", snapshot, algorithm="sha256"
     ).hexdigest()
-    return Preview(rows, summary, fingerprint)
+    over_capacity = summary[STATUS_NEW] > 0 and (
+        electorate.count() + summary[STATUS_NEW] > MAX_ELECTORATE_SIZE
+    )
+    return Preview(rows, summary, fingerprint, over_capacity)
 
 
 @transaction.atomic
-def confirm_import(batch_id, owner, fingerprint):
+def confirm_import(election_id, batch_id, owner, fingerprint):
+    try:
+        election = lock_election(election_id)
+    except Election.DoesNotExist:
+        return None, None
+    if election.status != Election.Status.DRAFT:
+        return None, None
     batch = (
         ImportBatch.objects.select_for_update()
-        .filter(pk=batch_id, owner=owner, expires_at__gt=timezone.now())
+        .filter(
+            pk=batch_id, owner=owner, election=election, expires_at__gt=timezone.now()
+        )
         .first()
     )
     if batch is None or batch.completed_at or not batch.mapping:
         return batch, None
-    # Serialize roster writes across operators without locking electoral snapshots.
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", IMPORT_CONFIRM_LOCK)
     if batch.expires_at <= timezone.now():
         return None, None
     preview = build_preview(batch)
-    if preview.summary["errors"] or not constant_time_compare(
-        fingerprint, preview.fingerprint
+    if (
+        preview.summary["errors"]
+        or preview.over_capacity
+        or not constant_time_compare(fingerprint, preview.fingerprint)
     ):
         return batch, preview
     pending = [
-        Member(**row.values) for row in preview.rows if row.status != STATUS_UNCHANGED
+        ElectionVoter(election=election, **row.values)
+        for row in preview.rows
+        if row.status != STATUS_UNCHANGED
     ]
     if pending:
-        Member.objects.bulk_create(
+        ElectionVoter.objects.bulk_create(
             pending,
             update_conflicts=True,
-            unique_fields=["external_id"],
+            unique_fields=["election", "external_id"],
             update_fields=[name for name in IMPORT_FIELDS if name != "external_id"],
         )
 
@@ -393,5 +420,7 @@ def confirm_import(batch_id, owner, fingerprint):
     batch.save(
         update_fields=["completed_at", "summary", "headings", "records", "mapping"]
     )
-    audit("importazione_soci", actor=owner, details=preview.summary)
+    audit(
+        "importazione_elettori", actor=owner, election=election, details=preview.summary
+    )
     return batch, None

@@ -1,11 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Elettori della votazione{% endblock %}
+{% block title %}{% if election.status == "draft" %}Aventi diritto{% else %}Elettori della votazione{% endif %}{% endblock %}
 {% block content %}
 <a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+{% if election.status == "draft" %}
+<div class="page-heading">
+  <div><h1>Aventi diritto</h1><p class="muted">Platea di questa consultazione · {{ page.paginator.count }} risultati</p></div>
+  <div class="actions">
+    <a class="button" href="{% url 'voting:voter_add' election.pk %}">Aggiungi elettore</a>
+    <a class="button secondary" href="{% url 'members:import' election.pk %}">Importa CSV</a>
+  </div>
+</div>
+{% else %}
 <h1>Elettori della votazione</h1>
-<p class="muted">Apri il nome di un elettore per copiare il link personale e gestire gli invii.</p>
+<p class="muted">{% if is_open %}Apri il nome di un elettore per copiare il link personale e gestire gli invii.{% else %}Elenco degli aventi diritto di questa consultazione.{% endif %}</p>
+{% endif %}
 <form method="get" class="search">
-  <div><label for="search">Nome, ID, email o cellulare</label><input id="search" name="q" value="{{ search }}" type="search" maxlength="150"></div>
+  <div><label for="search">Nome, matricola, email o cellulare</label><input id="search" name="q" value="{{ search }}" type="search" maxlength="150"></div>
   <button class="button">Cerca</button>
 </form>
 <div class="card table-wrap">
@@ -14,7 +24,7 @@
   <tbody>
   {% for voter in page %}
     <tr>
-      <th scope="row"><a href="{% url 'voting:voter_detail' election.pk voter.pk %}">{{ voter.first_name }} {{ voter.last_name }}</a><small>{{ voter.external_id }} · {{ voter.section }}</small></th>
+      <th scope="row"><a href="{% url 'voting:voter_detail' election.pk voter.pk %}">{{ voter.first_name }} {{ voter.last_name }}</a><small>{{ voter.external_id }}{% if voter.section %} · {{ voter.section }}{% endif %}</small></th>
       <td>{{ voter.email|default:"Email assente" }}<small>{{ voter.phone|default:"Cellulare assente" }}</small></td>
       <td>{{ voter.mail_label }}</td>
       <td>{% if voter.has_voted %}Ha votato{% else %}Non ha ancora votato{% endif %}</td>
@@ -29,13 +39,15 @@
           <a href="{% url 'mailings:resend' election.pk voter.pk %}">Reinvia email</a>
           <a href="{% url 'voting:rotate' election.pk voter.pk %}">Revoca e rigenera link</a>
           {% endif %}
-          {% if is_open or election.status == "draft" or election.status == "scheduled" %}
+          {% if election.status == "draft" %}
+          <a href="{% url 'voting:voter_edit' election.pk voter.pk %}">Modifica elettore</a>
+          {% elif is_open or election.status == "scheduled" %}
           <a href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a>
           {% endif %}
         </div>
       </td>
     </tr>
-  {% empty %}<tr><td colspan="5">Nessun elettore per questa ricerca.</td></tr>{% endfor %}
+  {% empty %}<tr><td colspan="5">{% if election.status == "draft" and not search %}Aggiungi un elettore o importa il CSV degli aventi diritto.{% else %}Nessun elettore per questa ricerca.{% endif %}</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>

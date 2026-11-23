@@ -22,6 +22,7 @@ class Member(models.Model):
 class ImportBatch(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    election = models.ForeignKey("voting.Election", null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(db_index=True)
     completed_at = models.DateTimeField(null=True, blank=True)
