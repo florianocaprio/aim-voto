@@ -13,10 +13,13 @@ from voting.forms import RomeDateTimeField
 from voting.models import (
     AuditEvent,
     Election,
+    ElectionDocument,
     ElectionVoter,
     NamedBallot,
     Question,
+    SecretBallot,
     SubmissionReceipt,
+    VotingCredential,
 )
 
 from .support import (
@@ -42,6 +45,101 @@ class VotingViewsTests(TestCase):
 
     def preview(self, revision, option=None, client=None):
         return review(client or self.client, revision, self.question, option)
+
+    def test_delete_published_requires_staff_published_status_and_confirmation(self):
+        pk = self.election.pk
+        details = reverse("voting:detail", args=[pk])
+        remove = reverse("voting:transition", args=[pk, "elimina-pubblicata"])
+        for status in Election.Status:
+            if status == Election.Status.TALLIED:
+                continue
+            with self.subTest(status=status):
+                Election.objects.filter(pk=pk).update(status=status)
+                self.assertNotContains(self.admin.get(details), "Elimina consultazione")
+                self.assertEqual(self.admin.get(remove).status_code, 404)
+                self.assertEqual(
+                    self.admin.post(remove, {"confirm": "yes"}).status_code, 404
+                )
+        Election.objects.filter(pk=pk).update(status=Election.Status.TALLIED)
+        regular = get_user_model().objects.create(username="socio-non-staff")
+        self.client.force_login(regular)
+        self.assertEqual(self.client.post(remove, {"confirm": "yes"}).status_code, 403)
+        self.assertContains(self.admin.get(details), "Elimina consultazione")
+        self.assertContains(
+            self.admin.get(remove), "Confermo l’eliminazione definitiva"
+        )
+        self.assertContains(self.admin.post(remove), "Conferma l’operazione")
+        self.assertTrue(Election.objects.filter(pk=pk).exists())
+        self.assertFalse(
+            AuditEvent.objects.filter(action="eliminazione_consultazione").exists()
+        )
+
+    def test_delete_published_removes_only_the_selected_election_and_its_records(self):
+        for mode in Election.Mode:
+            with self.subTest(mode=mode):
+                election, question, options = election_with_motion(
+                    self.actor, title=f"Consultazione di prova {mode}"
+                )
+                election.mode = mode
+                election.save(update_fields=["mode"])
+                (voter,) = open_election(election, [self.voter.member])
+                ElectionDocument.objects.create(
+                    election=election, name="Nota sintetica.pdf", content=b"%PDF-1.4"
+                )
+                token = services.personal_url(voter).split("#", 1)[1]
+                redeem(self.client, voter)
+                payload = review(self.client, 0, question, options[0]).context[
+                    "payload"
+                ]
+                self.assertEqual(
+                    self.client.post(self.submit_url, {"payload": payload}).status_code,
+                    200,
+                )
+                for action in ("chiudi", "scrutina"):
+                    url = reverse("voting:transition", args=[election.pk, action])
+                    self.assertEqual(
+                        self.admin.post(url, {"confirm": "yes"}).status_code, 302
+                    )
+                self.assertEqual(election.campaigns.get().deliveries.count(), 1)
+                remove = reverse(
+                    "voting:transition", args=[election.pk, "elimina-pubblicata"]
+                )
+                self.assertRedirects(
+                    self.admin.post(remove, {"confirm": "yes"}),
+                    reverse("voting:dashboard"),
+                )
+                self.assertEqual(self.admin.get(remove).status_code, 404)
+                self.assertEqual(
+                    self.client.post(
+                        reverse("voting:access"), {"token": token}
+                    ).status_code,
+                    404,
+                )
+                self.assertFalse(Election.objects.filter(pk=election.pk).exists())
+                self.assertFalse(ElectionVoter.objects.filter(pk=voter.pk).exists())
+                self.assertFalse(
+                    VotingCredential.objects.filter(voter_id=voter.pk).exists()
+                )
+                self.assertFalse(
+                    SubmissionReceipt.objects.filter(voter_id=voter.pk).exists()
+                )
+                self.assertFalse(NamedBallot.objects.filter(voter_id=voter.pk).exists())
+                self.assertFalse(
+                    SecretBallot.objects.filter(election=election).exists()
+                )
+                self.assertFalse(
+                    ElectionDocument.objects.filter(election=election).exists()
+                )
+                self.assertFalse(election.campaigns.exists())
+                self.assertTrue(
+                    AuditEvent.objects.filter(
+                        action="eliminazione_consultazione",
+                        actor=self.actor,
+                        details={"consultazione": election.pk},
+                    ).exists()
+                )
+        self.assertTrue(ElectionVoter.objects.filter(pk=self.voter.pk).exists())
+        self.assertTrue(VotingCredential.objects.filter(voter=self.voter).exists())
 
     def test_motion_can_require_a_response_without_counting_omissions_on_other_questions(
         self,

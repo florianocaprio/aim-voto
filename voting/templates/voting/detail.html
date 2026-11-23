@@ -77,6 +77,7 @@
     <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Quorum assembleare</a>
   {% elif election.status == "tallied" %}
     <a class="button" href="{% url 'voting:results' election.pk %}">Risultati e report</a>
+    <a class="button danger" href="{% url 'voting:transition' election.pk 'elimina-pubblicata' %}">Elimina consultazione</a>
   {% endif %}
   {% if election.status == "scheduled" or election.status == "open" or election.status == "closed" %}
     <a class="button danger" href="{% url 'voting:transition' election.pk 'annulla' %}">Annulla consultazione</a>

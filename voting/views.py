@@ -348,6 +348,7 @@ TRANSITIONS = {
     "scrutina": "Pubblica lo scrutinio",
     "annulla": "Annulla la consultazione",
     "elimina": "Elimina la bozza",
+    "elimina-pubblicata": "Elimina consultazione",
     "bozza": "Riporta in bozza",
 }
 
@@ -365,6 +366,9 @@ def apply_transition(election, action, actor, reason):
     if action == "elimina" and current == statuses.DRAFT:
         services.audit("eliminazione_bozza", actor=actor, election=election)
         election.delete()
+        return "voting:dashboard"
+    if action == "elimina-pubblicata":
+        services.delete_published_locked(election, actor=actor)
         return "voting:dashboard"
     if action == "programma" and current == statuses.DRAFT:
         if (
@@ -408,6 +412,8 @@ def transition(request, pk, action):
     if action not in TRANSITIONS:
         raise Http404
     election = get_election(pk, request.method == "POST")
+    if action == "elimina-pubblicata" and election.status != Election.Status.TALLIED:
+        raise Http404
     if request.method == "POST":
         try:
             if request.POST.get("confirm") != "yes":
@@ -421,6 +427,8 @@ def transition(request, pk, action):
         except ValidationError as exc:
             messages.error(request, exc.messages[0])
         else:
+            if action == "elimina-pubblicata":
+                messages.success(request, "Consultazione eliminata.")
             if destination == "voting:dashboard":
                 return redirect(destination)
             return redirect(destination, pk=pk)

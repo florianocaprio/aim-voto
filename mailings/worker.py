@@ -41,7 +41,9 @@ def _skip(delivery, reason, now):
 
 @transaction.atomic
 def _claim(delivery_id, election_id):
-    election = lock_election(election_id)
+    election = lock_election(election_id, allow_missing=True)
+    if election is None:
+        return None
     delivery = (
         EmailDelivery.objects.select_for_update()
         .select_related("campaign")
@@ -120,7 +122,8 @@ def _claim(delivery_id, election_id):
 
 @transaction.atomic
 def _finish(prepared, election_id, outcome):
-    lock_election(election_id)
+    if lock_election(election_id, allow_missing=True) is None:
+        return
     delivery = (
         EmailDelivery.objects.select_for_update()
         .select_related("campaign")

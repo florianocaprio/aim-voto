@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
+from django.db.models import ProtectedError
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
@@ -21,6 +22,7 @@ from .models import (
     NamedBallot,
     Question,
     RateBucket,
+    SecretBallot,
     SubmissionReceipt,
     VoterPresence,
     VotingCredential,
@@ -44,8 +46,9 @@ def database_now():
         return cursor.fetchone()[0]
 
 
-def lock_election(election_id):
-    return Election.objects.select_for_update().get(pk=election_id)
+def lock_election(election_id, *, allow_missing=False):
+    elections = Election.objects.select_for_update().filter(pk=election_id)
+    return elections.first() if allow_missing else elections.get()
 
 
 def is_open(election, now=None):
@@ -157,6 +160,28 @@ def close_locked(election, actor=None, now=None):
     audit("chiusura", actor=actor, election=election)
 
 
+@transaction.atomic
+def delete_published_locked(election, *, actor):
+    if election.status != Election.Status.TALLIED:
+        raise ValidationError("Puoi eliminare solo una consultazione scrutinata.")
+    election_id = election.pk
+    try:
+        # Remove records protected from incidental deletion of a voter or election.
+        NamedBallot.objects.filter(voter__election=election).delete()
+        SubmissionReceipt.objects.filter(voter__election=election).delete()
+        SecretBallot.objects.filter(election=election).delete()
+        election.delete()
+    except ProtectedError as exc:
+        raise ValidationError(
+            "La consultazione ha dati collegati a un’altra consultazione. Contatta l’assistenza."
+        ) from exc
+    audit(
+        "eliminazione_consultazione",
+        actor=actor,
+        details={"consultazione": election_id},
+    )
+
+
 def advance_schedules():
     now = timezone.now()
     candidates = Election.objects.filter(
@@ -164,7 +189,9 @@ def advance_schedules():
     ) | Election.objects.filter(status=Election.Status.OPEN, closes_at__lte=now)
     for election_id in candidates.values_list("pk", flat=True):
         with transaction.atomic():
-            election = lock_election(election_id)
+            election = lock_election(election_id, allow_missing=True)
+            if election is None:
+                continue
             checked_at = database_now()
             if (
                 election.status == Election.Status.SCHEDULED

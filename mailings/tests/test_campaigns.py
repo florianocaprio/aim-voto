@@ -356,6 +356,31 @@ class CampaignTests(TestCase):
         )
         self.assertFalse(process_next())
 
+    def test_worker_completes_if_published_election_is_deleted_during_smtp(self):
+        create_voter(self.election, 1)
+        self.election.status = Election.Status.CLOSED
+        self.election.save(update_fields=["status"])
+        pk = self.election.pk
+        publish = reverse("voting:transition", args=[pk, "scrutina"])
+        delete = reverse("voting:transition", args=[pk, "elimina-pubblicata"])
+        self.assertEqual(self.client.post(publish, {"confirm": "yes"}).status_code, 302)
+        delivery = self.election.campaigns.get(kind=MailKind.RESULTS).deliveries.get()
+
+        def delete_while_sending(prepared):
+            self.assertEqual(prepared.delivery_id, delivery.pk)
+            self.assertEqual(
+                self.client.post(delete, {"confirm": "yes"}).status_code, 302
+            )
+            return SmtpOutcome(DeliveryState.ACCEPTED)
+
+        with patch(
+            "mailings.worker.send_local_message", side_effect=delete_while_sending
+        ) as send:
+            self.assertTrue(process_next())
+            send.assert_called_once()
+        self.assertIsNone(_claim(delivery.pk, pk))
+        self.assertFalse(process_next())
+
     def test_post_routes_require_staff_and_scope_to_the_election(self):
         voter = create_voter(self.election, 1)
         campaign = self.preview()

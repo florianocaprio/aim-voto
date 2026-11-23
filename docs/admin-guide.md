@@ -97,6 +97,8 @@ Dallo stato **Chiusa**, seleziona **Pubblica lo scrutinio** per rendere disponib
 
 Custodisci i PDF e gli elenchi nominativi come documenti riservati.
 
+Per rimuovere una consultazione con scrutinio pubblicato, aprila da **Consultazioni** e scegli **Elimina consultazione**. L’operazione è definitiva e comprende i dati della votazione e gli invii ancora in coda. L’audit registra l’identificativo della consultazione eliminata, l’amministratore e la data.
+
 ## Quorum e rapporto assembleare
 
 1. Apri **Quorum assembleare** dalla bozza o da una consultazione chiusa. Dopo la pubblicazione dello scrutinio lo trovi in **Risultati e report → Rapporto assembleare**.
