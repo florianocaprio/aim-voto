@@ -26,7 +26,7 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri ora** oppure **Programma l’apertura** e conferma l’operazione. Dallo stato programmato puoi tornare in bozza per fare modifiche. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale.
 5. Durante l’apertura, seleziona **Prepara inviti email**. Scegli la sezione o l’intera platea, personalizza oggetto e testo, verifica i destinatari e conferma l’accodamento.
 
-Il voto è palese. All’apertura si congelano quesiti, opzioni, regole e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
+Nel menu **Modalità di voto** è disponibile **Palese (nominativo)**. L’opzione **Segreto** è disabilitata in attesa del motore dedicato. All’apertura si congelano quesiti, opzioni, regole e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 
 Per consultare lo storico apri la votazione conclusa da **Consultazioni** e scegli **Elettori della votazione**. La stessa matricola può riportare un recapito diverso in un’altra consultazione.
 

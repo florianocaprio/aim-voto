@@ -102,7 +102,6 @@ def election_edit(request, pk=None):
         "Modifica consultazione" if election else "Nuova consultazione",
         form,
         election,
-        show_secret_option=True,
     )
 
 

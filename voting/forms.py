@@ -32,6 +32,18 @@ class RomeDateTimeField(forms.DateTimeField):
         return super().to_python(value)
 
 
+class ElectionModeSelect(forms.Select):
+    def optgroups(self, name, value, attrs=None):
+        groups = super().optgroups(name, value, attrs)
+        # Render the planned mode without adding it to the model field's accepted choices.
+        index = len(groups)
+        option = self.create_option(
+            name, "secret", "Segreto (non ancora disponibile)", False, index
+        )
+        option["attrs"]["disabled"] = True
+        return [*groups, (None, [option], index)]
+
+
 class ElectionForm(forms.ModelForm):
     opens_at = RomeDateTimeField(
         required=False,
@@ -54,11 +66,20 @@ class ElectionForm(forms.ModelForm):
         labels: ClassVar = {
             "title": "Titolo",
             "description": "Descrizione",
-            "mode": "Modalità",
+            "mode": "Modalità di voto",
             "allow_replacement": "Consenti la sostituzione del voto",
             "allow_delegations": "Consenti il voto per delega verificata dallo staff",
         }
-        widgets: ClassVar = {"description": forms.Textarea(attrs={"rows": 4})}
+        widgets: ClassVar = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+            "mode": ElectionModeSelect,
+        }
+        help_texts: ClassVar = {
+            "mode": (
+                "Nel voto palese la scheda è associata al socio. "
+                "Il voto segreto richiede un motore che separi l’identità dalla scelta."
+            ),
+        }
 
     def clean_closes_at(self):
         value = self.cleaned_data["closes_at"]

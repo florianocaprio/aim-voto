@@ -2,7 +2,7 @@
 
 AIM Voto supporta consultazioni online di Angeli in Moto ODV. L’amministratore nazionale può comporre una platea per l’intera associazione, per sezione o per soci selezionati. L’elettore accede dal telefono o dal computer con il link personale ricevuto al recapito associativo. L’interfaccia operativa è in italiano.
 
-Il primo rilascio implementa il **voto palese e nominativo**. La scheda è collegata all’elettore e l’interfaccia lo comunica prima della conferma. L’opzione del voto segreto compare disabilitata e il server rifiuta la creazione o l’apertura di una consultazione segreta. Il progetto prevede una successiva integrazione con un motore verificabile.
+Il primo rilascio implementa il **voto palese e nominativo**. La scheda è collegata all’elettore e l’interfaccia lo comunica prima della conferma. L’opzione **Segreto** compare disabilitata nel menu **Modalità di voto** e il server rifiuta la creazione o l’apertura di una consultazione segreta. Il primo rilascio operativo del voto segreto dovrà supportare sia il voto personale sia il voto per delega, con un motore verificabile.
 
 ## Primo rilascio
 
