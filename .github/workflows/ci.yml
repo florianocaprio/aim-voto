@@ -3,6 +3,7 @@ name: Controlli AIM Voto
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
