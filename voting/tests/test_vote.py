@@ -248,6 +248,12 @@ class VotingViewsTests(TestCase):
             self.client.post(self.submit_url, {"payload": payload}), "Scheda corrente"
         )
         self.assertContains(self.admin.get(results_url), "Favorevole")
+        nominative = self.admin.get(
+            reverse("voting:voter_detail", args=[self.election.pk, self.voter.pk])
+        )
+        self.assertContains(nominative, "Scelte della scheda nominativa")
+        self.assertContains(nominative, self.question.text)
+        self.assertContains(nominative, self.options[0].text)
         token = services.personal_url(self.voter).split("#", 1)[1].encode()
         for kind in ("risultati-csv", "partecipazione-csv", "report-pdf"):
             result = self.admin.get(
@@ -263,13 +269,13 @@ class VotingViewsTests(TestCase):
             if kind == "report-pdf":
                 self.assertTrue(data.startswith(b"%PDF-"))
 
-    def test_secret_refused_by_form_and_database(self):
+    def test_secret_selectable_and_forces_a_final_vote(self):
         new_url = reverse("voting:create")
         form = self.admin.get(new_url)
         self.assertContains(form, "Modalità di voto")
         self.assertContains(
             form,
-            '<option value="secret" disabled>Segreto (non ancora disponibile)</option>',
+            '<option value="secret">Segreto</option>',
             html=True,
         )
         self.assertNotContains(form, "Voto segreto · In preparazione")
@@ -279,12 +285,15 @@ class VotingViewsTests(TestCase):
                 "title": "Titolo",
                 "mode": "secret",
                 "closes_at": "2035-01-01T10:00",
+                "allow_replacement": "on",
             },
         )
-        self.assertIn("mode", response.context["form"].errors)
-        self.assertFalse(Election.objects.filter(title="Titolo").exists())
+        self.assertEqual(response.status_code, 302)
+        secret = Election.objects.get(title="Titolo")
+        self.assertEqual(secret.mode, Election.Mode.SECRET)
+        self.assertFalse(secret.allow_replacement)
         with self.assertRaises(IntegrityError), transaction.atomic():
-            Election.objects.filter(pk=self.election.pk).update(mode="secret")
+            Election.objects.filter(pk=secret.pk).update(allow_replacement=True)
 
     def test_deadline_without_scheduler_protects_previous_ballot(self):
         redeem(self.client, self.voter)

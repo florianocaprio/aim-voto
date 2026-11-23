@@ -3,7 +3,7 @@
 {% block content %}
 <a class="back" href="{% url 'voting:dashboard' %}">Tutte le consultazioni</a>
 <div class="page-heading">
-  <div><p class="mode">{{ election.get_status_display }} · Voto palese</p><h1>{{ election.title }}</h1>
+  <div><p class="mode">{{ election.get_status_display }} · Voto {{ election.get_mode_display|lower }}</p><h1>{{ election.title }}</h1>
     <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
     {% if election.opens_at and not election.opened_at %}<p>Apertura prevista {{ election.opens_at|date:"d/m/Y H:i T" }}</p>{% endif %}
   </div>

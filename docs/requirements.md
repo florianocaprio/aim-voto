@@ -2,7 +2,7 @@
 
 AIM Voto supporta consultazioni online di Angeli in Moto ODV. L’amministratore nazionale può comporre una platea per l’intera associazione, per sezione o per soci selezionati. L’elettore accede dal telefono o dal computer con il link personale ricevuto al recapito associativo. L’interfaccia operativa è in italiano.
 
-Il primo rilascio implementa il **voto palese e nominativo**. La scheda è collegata all’elettore e l’interfaccia lo comunica prima della conferma. L’opzione **Segreto** compare disabilitata nel menu **Modalità di voto** e il server rifiuta la creazione o l’apertura di una consultazione segreta. Il primo rilascio operativo del voto segreto dovrà supportare sia il voto personale sia il voto per delega, con un motore verificabile.
+Il menu **Modalità di voto** offre **Palese (nominativo)** e **Segreto**, entrambi con voto personale e per delega. Nel palese i PDF riportano le scelte della scheda corrente per ciascun votante. Nel segreto il database registra la partecipazione separatamente dalle schede cifrate e i PDF includono l’elenco degli aventi diritto e gli esiti aggregati.
 
 ## Primo rilascio
 
@@ -25,7 +25,7 @@ Il primo rilascio implementa il **voto palese e nominativo**. La scheda è colle
 - La matricola identifica la posizione nella stessa consultazione anche se cambia email. L’importazione segnala gli indirizzi condivisi e mantiene separate le posizioni. Le matricole duplicate nel file bloccano la conferma. Dopo la correzione degli errori e la conferma, il sistema applica tutte le righe in una sola transazione.
 - All’apertura restano fissati aventi diritto, quesiti, opzioni e regole. Per correggere un recapito si usa l’azione dedicata sulla posizione elettorale. Una consultazione conclusa conserva i dati degli elettori usati per quella votazione.
 - L’apertura del link consente di consultare la scheda. Per registrarla occorrono riepilogo e conferma esplicita. L’accesso, l’acquisizione della scheda e l’eventuale presenza assembleare sono eventi distinti.
-- Per ogni socio si conta l’ultima scheda validamente registrata prima della chiusura. Una nuova scheda sostituisce per intero la precedente al termine della transazione. Una richiesta ripetuta può recuperare la stessa ricevuta e una conferma con revisione superata richiede una nuova compilazione.
+- Nel voto palese con sostituzione attiva si conta l’ultima scheda validamente registrata prima della chiusura. Nel voto segreto la prima conferma valida è definitiva. Una richiesta ripetuta può recuperare la stessa ricevuta.
 - Una scheda bianca è un invio valido con tutti i quesiti vuoti. Una risposta mancante è un quesito lasciato vuoto in una scheda acquisita. **Astenuto** è una preferenza esplicita del quesito a mozione. Il mancato invio resta registrato come mancata partecipazione al voto.
 - L’anteprima dei solleciti parte dagli aventi diritto della sezione scelta o dell’intera platea. Accoda i soci idonei senza scheda acquisita. Il controllo si ripete alla conferma e alla preparazione di ciascun tentativo di invio.
 - La coda distingue accettazione SMTP, errori temporanei o permanenti, esiti incerti ed esclusioni. L’accettazione indica la presa in carico da parte del server SMTP. Mailpit riceve soltanto invii di prova a recapiti `@example.invalid`.

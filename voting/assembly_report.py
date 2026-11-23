@@ -20,7 +20,7 @@ from reportlab.platypus import (
 )
 
 from . import reports
-from .models import AssemblyQuorum, Delegation, NamedBallot, VoterPresence
+from .models import AssemblyQuorum, Delegation, VoterPresence
 
 PDF_FILENAME = "Rapporto_Assembleare_AIM_VOTO.pdf"
 ZIP_FILENAME = "Rapporto_Assembleare_AIM_VOTO.zip"
@@ -42,9 +42,7 @@ def participation(election):
         )
     )
     ballots = list(
-        NamedBallot.objects.filter(voter__election=election).values_list(
-            "voter_id", "cast_by_id"
-        )
+        election.participation_records().values_list("voter_id", "cast_by_id")
     )
     exercised = {
         (voter, delegate) for voter, delegate in ballots if delegate is not None
@@ -125,7 +123,9 @@ def delegations_csv(counts):
 def supporting_files(election, data, counts):
     return {
         "risultati.csv": reports.aggregate_csv(election, data=data).content,
-        "partecipazione.csv": reports.participation_csv(election).content,
+        reports.participation_filename(election): reports.participation_csv(
+            election
+        ).content,
         "presenze.csv": reports.presences_csv(election).content,
         "deleghe.csv": delegations_csv(counts),
         "scrutinio.pdf": reports.scrutiny_pdf_buffer(election, data=data).getvalue(),
@@ -194,7 +194,7 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
     story = [
         Paragraph("Rapporto assembleare", styles["Title"]),
         Paragraph(escape(election.title), styles["Heading1"]),
-        p("Consultazione AIM VOTO · Voto palese"),
+        p(f"Consultazione AIM VOTO · Voto {election.get_mode_display().lower()}"),
         Spacer(1, 7),
         report_table(
             [
@@ -273,16 +273,19 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
     )
 
     for index, item in enumerate(data["rows"], start=1):
+        summary = (
+            f"Schede con risposta {item['answered']} su {data['total']} · "
+            f"Senza risposta {item['omitted']}"
+        )
+        if not election.is_secret:
+            summary += f" · Risposte da schede per delega {item['proxy_answered']}"
         story.extend(
             [
                 Paragraph(
                     f"Votazione {index} - {escape(item['question'])}",
                     styles["Heading2"],
                 ),
-                p(
-                    f"Schede con risposta {item['answered']} su {data['total']} · "
-                    f"Senza risposta {item['omitted']} · Risposte da schede per delega {item['proxy_answered']}"
-                ),
+                p(summary),
                 report_table(
                     [["Opzione", "Preferenze"]]
                     + [[p(label), count] for label, count in item["choices"]],
@@ -311,6 +314,7 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
             ]
         )
     )
+    story.extend(reports.voting_appendix(election, styles, 482))
     document.build(story, onFirstPage=footer, onLaterPages=footer)
     return buffer.getvalue()
 

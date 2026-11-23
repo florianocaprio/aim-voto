@@ -11,8 +11,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from voting import reports
-from voting.models import Election, ElectionVoter, NamedBallot
+from voting.models import Election, ElectionVoter
 from voting.services import audit, database_now, is_open, lock_election, personal_url
 
 from .models import (
@@ -41,7 +40,9 @@ def recipients(election, kind, *, rows=None):
     )
     query = ElectionVoter.objects.filter(election=election).select_related("credential")
     return query.annotate(
-        already_voted=Exists(NamedBallot.objects.filter(voter_id=OuterRef("pk"))),
+        already_voted=Exists(
+            election.participation_records().filter(voter_id=OuterRef("pk"))
+        ),
         delivery_pending=Exists(history.filter(state__in=PENDING)),
         last_delivery=Subquery(
             history.filter(state__in=POSSIBLY_SENT)
@@ -135,12 +136,11 @@ def render_body(campaign, voter, url, *, represented=None):
         instructions = (
             f"Scheda per: {represented.first_name} {represented.last_name}\n"
             f"Il tuo link per questa delega: {url}\n"
-            "Il link apre solo questa scheda di voto palese. Conserva il link e non inoltrarlo.\n"
+            "Il link apre solo la scheda del socio rappresentato. Conserva il link e non inoltrarlo.\n"
         )
     else:
         instructions = (
-            f"Il tuo link personale: {url}\n\n"
-            "Il voto è palese e associato al tuo nominativo. Conserva il link e non inoltrarlo.\n"
+            f"Il tuo link personale: {url}\n\nConserva il link e non inoltrarlo.\n"
         )
         if campaign.election.allow_delegations:
             instructions += (
@@ -157,6 +157,7 @@ def render_body(campaign, voter, url, *, represented=None):
         f"Ciao {voter.first_name} {voter.last_name},\n\n"
         f"{campaign.body}\n\n"
         f"Consultazione: {campaign.election.title}\n"
+        f"Modalità di voto: {campaign.election.get_mode_display()}\n"
         f"Scadenza: {deadline} (Europe/Rome)\n"
         f"{instructions}"
         f"Assistenza Angeli in Moto ODV: {settings.SUPPORT_EMAIL}\n"
@@ -186,10 +187,10 @@ def enqueue_proxy_notice(election, delegation, actor):
     )
 
 
-def enqueue_results(election, actor, now):
-    data = reports.tally(election)
+def enqueue_results(election, actor, now, data):
     lines = [
         f"Consultazione: {election.title}",
+        f"Modalità di voto: {election.get_mode_display()}",
         f"Aventi diritto: {data['eligible']}",
         f"Votanti: {data['total']} (schede acquisite, incluse le deleghe)",
     ]

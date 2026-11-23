@@ -1,6 +1,6 @@
 # Backup e ripristino
 
-La copia PostgreSQL contiene soci, schede nominative, registri e credenziali cifrate. Proteggila con cifratura, custodia e cancellazione controllata. Conserva separatamente il materiale necessario a leggere ciascuna copia, compreso l'insieme delle chiavi Fernet in uso nel relativo periodo. Dopo un ripristino possono riapparire vecchi stati delle campagne, dei link e delle sessioni. Tieni sospesi web e worker fino alla riconciliazione.
+La copia PostgreSQL contiene soci, schede nominative, schede segrete cifrate, registri e credenziali cifrate. Conserva anche il valore di `DJANGO_SECRET_KEY` in un archivio separato e riservato per poter rileggere le schede segrete dopo un ripristino. Proteggila con cifratura, custodia e cancellazione controllata. Conserva separatamente il materiale necessario a leggere ciascuna copia, compreso l'insieme delle chiavi Fernet in uso nel relativo periodo. Dopo un ripristino possono riapparire vecchi stati delle campagne, dei link e delle sessioni. Tieni sospesi web e worker fino alla riconciliazione.
 
 ## Accesso tecnico locale
 

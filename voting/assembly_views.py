@@ -49,8 +49,9 @@ def find_delegate(request):
         )
     election = voter.election
     require_direct_delegation(election)
-    if voter.delegations_given.filter(state__in=assembly.ACTIVE).exists() or hasattr(
-        voter, "ballot"
+    if (
+        voter.delegations_given.filter(state__in=assembly.ACTIVE).exists()
+        or election.participation_records().filter(voter=voter).exists()
     ):
         raise Http404
     query = request.GET.get("q", "").strip()[:100]
@@ -168,7 +169,7 @@ def voter_assembly(request):
             "election": election,
             "is_open": services.is_open(election),
             "presence": VoterPresence.objects.filter(voter=voter).first(),
-            "has_voted": hasattr(voter, "ballot"),
+            "has_voted": election.participation_records().filter(voter=voter).exists(),
             "active": active,
             "last_request": voter.delegations_given.select_related("delegate").first(),
             "received": voter.delegations_received.filter(

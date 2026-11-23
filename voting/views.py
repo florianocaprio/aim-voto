@@ -14,6 +14,7 @@ from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from mailings.campaigns import enqueue_results
@@ -37,7 +38,6 @@ from .models import (
     Election,
     ElectionDocument,
     ElectionVoter,
-    NamedBallot,
     Question,
     VotingCredential,
 )
@@ -111,8 +111,8 @@ def election_edit(request, pk=None):
 @require_GET
 def detail(request, pk):
     election = get_election(pk)
-    electorate_count = election.voters.count()
-    ballot_count = NamedBallot.objects.filter(voter__election=election).count()
+    totals = reports.turnout(election)
+    electorate_count, ballot_count = totals["eligible"], totals["voted"]
     from mailings.models import EmailDelivery, MailKind
 
     mail = EmailDelivery.objects.filter(
@@ -378,6 +378,7 @@ def apply_transition(election, action, actor, reason):
     elif action == "bozza" and current == statuses.SCHEDULED:
         election.status = statuses.DRAFT
     elif action == "scrutina" and current == statuses.CLOSED:
+        data = reports.tally(election)
         election.status = statuses.TALLIED
     elif action == "annulla" and current in {
         statuses.SCHEDULED,
@@ -393,7 +394,7 @@ def apply_transition(election, action, actor, reason):
         raise ValidationError("Operazione non disponibile nello stato attuale.")
     election.save(update_fields=["status", "ended_at", "cancellation_reason"])
     if action == "scrutina":
-        enqueue_results(election, actor, now)
+        enqueue_results(election, actor, now, data)
     services.audit(action, actor=actor, election=election)
     return "voting:detail"
 
@@ -448,7 +449,9 @@ def voters(request, pk):
         .order_by("-pk")
     )
     queryset = election.voters.annotate(
-        has_voted=Exists(NamedBallot.objects.filter(voter_id=OuterRef("pk"))),
+        has_voted=Exists(
+            election.participation_records().filter(voter_id=OuterRef("pk"))
+        ),
         mail_state=Subquery(deliveries.values("state")[:1]),
     )
     for term in search.split():
@@ -496,6 +499,7 @@ def voter_detail(request, pk, voter_pk):
 
     election = get_election(pk)
     voter = get_object_or_404(election.voters, pk=voter_pk)
+    record = election.participation_records().filter(voter=voter).first()
     last_invite = (
         voter.deliveries.filter(kind__in=[MailKind.INVITE, MailKind.RESEND])
         .exclude(campaign__state=CampaignState.PREVIEW)
@@ -509,7 +513,14 @@ def voter_detail(request, pk, voter_pk):
             "election": election,
             "voter": voter,
             "last_invite": last_invite,
-            "has_voted": NamedBallot.objects.filter(voter=voter).exists(),
+            "has_voted": record is not None,
+            "named_vote": reports.ballot_summary(
+                services.ballot_questions(election), record.answers
+            )
+            if record
+            and not election.is_secret
+            and election.status == Election.Status.TALLIED
+            else None,
             "is_open": services.is_open(election),
             "whatsapp_phone": whatsapp_number(voter.phone),
             "local_link": urlsplit(settings.AIM_BASE_URL).hostname
@@ -688,7 +699,11 @@ def ballot_page(
     if not services.is_open(voter.election):
         return render(request, "voting/unavailable.html", {"election": voter.election})
     if answers is None:
-        answers = ballot_record.answers if ballot_record and editing else {}
+        answers = (
+            ballot_record.answers
+            if ballot_record and editing and voter.election.allow_replacement
+            else {}
+        )
     return render(
         request,
         "voting/ballot.html",
@@ -721,6 +736,7 @@ def ballot_page(
 
 
 @require_http_methods(["GET", "POST"])
+@sensitive_post_parameters()
 def ballot(request):
     voter = voter_context(request)
     if voter is None:
@@ -729,6 +745,7 @@ def ballot(request):
 
 
 @require_http_methods(["GET", "POST"])
+@sensitive_post_parameters()
 def proxy_ballot(request, delegation_pk):
     scoped = request.session.get(proxy_access.SESSION_KEY)
     if scoped is not None:
@@ -749,8 +766,9 @@ def proxy_ballot(request, delegation_pk):
     return voter_ballot(request, delegation.grantor, delegation)
 
 
+@sensitive_variables("answers", "data", "payload", "raw", "summary")
 def voter_ballot(request, voter, delegation=None):
-    current = NamedBallot.objects.filter(voter=voter).first()
+    current = voter.election.participation_records().filter(voter=voter).first()
     if request.method == "GET" or not services.is_open(voter.election):
         return ballot_page(
             request,
@@ -840,17 +858,7 @@ def voter_ballot(request, voter, delegation=None):
     if delegation:
         data.append(delegation.pk)
     payload = signing.dumps(data, salt=SUBMISSION_SALT)
-    summary = [
-        (
-            question,
-            [
-                choice.text
-                for choice in question.choices.all()
-                if choice.pk in answers.get(str(question.pk), [])
-            ],
-        )
-        for question in questions
-    ]
+    summary = reports.ballot_summary(questions, answers)
     return render(
         request,
         "voting/review.html",
@@ -869,6 +877,8 @@ def voter_ballot(request, voter, delegation=None):
 
 
 @require_POST
+@sensitive_post_parameters()
+@sensitive_variables("answers")
 def submit(request):
     scoped = request.session.get(proxy_access.SESSION_KEY)
     if scoped is None:

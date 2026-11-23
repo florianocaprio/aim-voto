@@ -10,7 +10,9 @@ from django.db import connection, transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
+from django.views.decorators.debug import sensitive_variables
 
+from . import secret_ballots
 from .models import (
     MAX_ELECTORATE_SIZE,
     AuditEvent,
@@ -125,8 +127,6 @@ def open_locked(election, *, actor=None, now=None):
     now = database_now() if now is None else now
     if election.status not in {Election.Status.DRAFT, Election.Status.SCHEDULED}:
         raise ValidationError("La consultazione è già stata avviata.")
-    if election.mode != Election.Mode.NAMED:
-        raise ValidationError("Il voto segreto non è disponibile.")
     if now >= election.closes_at:
         raise ValidationError("La scadenza è già trascorsa.")
     electorate_size = election.voters.count()
@@ -266,6 +266,7 @@ def validate_answers(questions: list[Question], answers):
 
 
 @transaction.atomic
+@sensitive_variables("answers", "credential", "fingerprint_parts")
 def record_ballot(
     voter_id,
     election_id,
@@ -298,11 +299,14 @@ def record_ballot(
         grantor_id=voter_id, state=Delegation.State.APPROVED
     ).exists():
         raise ValidationError("La posizione è assegnata al delegato autorizzato.")
-    ballot = NamedBallot.objects.filter(voter_id=voter_id).first()
+    ballot = election.participation_records().filter(voter_id=voter_id).first()
     current_revision = ballot.revision if ballot else 0
-    answers = validate_answers(ballot_questions(election), answers)
+    questions = ballot_questions(election)
+    answers = validate_answers(questions, answers)
     request_id = UUID(str(request_id))
-    fingerprint_parts = [voter_id, str(request_id), revision, answers]
+    fingerprint_parts = [voter_id, str(request_id), revision]
+    if not election.is_secret:
+        fingerprint_parts.append(answers)
     if cast_by_id is not None:
         fingerprint_parts.extend([cast_by_id, delegation_id])
     fingerprint = salted_hmac(
@@ -333,21 +337,25 @@ def record_ballot(
     if not is_open(election, accepted_at):
         raise ValidationError("Votazione chiusa. La scheda non è stata registrata.")
     next_revision = revision + 1
-    NamedBallot.objects.update_or_create(
-        voter_id=voter_id,
-        defaults={
-            "answers": answers,
-            "revision": next_revision,
-            "submitted_at": accepted_at,
-            "cast_by_id": cast_by_id,
-        },
-    )
+    if election.is_secret:
+        secret_ballots.store(election, questions, answers, cast_by_id is not None)
+    else:
+        NamedBallot.objects.update_or_create(
+            voter_id=voter_id,
+            defaults={
+                "answers": answers,
+                "revision": next_revision,
+                "submitted_at": accepted_at,
+                "cast_by_id": cast_by_id,
+            },
+        )
     receipt = SubmissionReceipt.objects.create(
         voter_id=voter_id,
         request_id=request_id,
         fingerprint=fingerprint,
         revision=next_revision,
         accepted_at=accepted_at,
+        cast_by_id=cast_by_id if election.is_secret else None,
     )
     register_presence(election, actor_id, accepted_at, VoterPresence.Source.BALLOT)
     if cast_by_id is not None:

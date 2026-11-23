@@ -4,7 +4,7 @@ AIM Voto è un monolite Django con template HTML e JavaScript locale. Gunicorn s
 
 - `config` gestisce configurazione, accesso staff, MFA, limiti di richiesta e avvio.
 - `members` valida i file e importa gli aventi diritto nella bozza selezionata. L'anteprima appartiene all'operatore e alla consultazione. La conferma usa lo stesso lock della consultazione usato per inserimento manuale e apertura. Una variazione dei dati rilevanti richiede una nuova conferma.
-- `voting` gestisce consultazioni, credenziali, voto nominativo, partecipazione e scrutinio.
+- `voting` gestisce consultazioni, credenziali, voto palese e segreto, partecipazione e scrutinio.
 - `mailings` compone le anteprime, congela la selezione confermata e gestisce gli invii. PostgreSQL è anche la coda persistente, sufficiente per il primo rilascio e monitorabile con gli strumenti del database.
 
 ## Stati e scadenze
@@ -29,8 +29,8 @@ La conferma della presenza è esplicita e genera un registro autonomo. Richieste
 
 La sessione del delegato può confermare la scheda della posizione rappresentata solo con una delega approvata. La chiave univoca della scheda resta la posizione del delegante. Lo scrutinio usa quindi le stesse regole di conteggio del voto diretto. Il payload di conferma firmato identifica la delega e la versione della credenziale del delegato. La scheda nominativa conserva la posizione che ha registrato il voto per delega.
 
-## Decisione sul voto segreto
+## Voto segreto
 
-Il confine del motore nominativo è il percorso di acquisizione e scrutinio in `voting.services.record_ballot`, `NamedBallot` e `voting.reports`. Per il voto segreto adottiamo **Helios come prima opzione da valutare** per un motore separato e verificabile. L'anagrafica e la configurazione della platea potranno orchestrare il motore, mentre schede, pubblicazione delle prove e scrutinio dovranno seguire il suo protocollo. L'integrazione va preceduta da una prova isolata che controlli revisione del voto, configurazione dei fiduciari, verifiche degli elettori, correlazione identità–scheda, versioni mantenute e modello di accesso, compreso il rischio introdotto dal recupero dei link. Il voto segreto resta disabilitato nella UI e nel database finché il percorso integrato non è stato valutato e verificato. [Repository e documentazione ufficiale di Helios](https://github.com/benadida/helios-server)
+Il server salva in una transazione la ricevuta di partecipazione e la scheda cifrata. La ricevuta identifica la posizione elettorale e, per una delega, chi ha votato per suo conto. La scheda cifrata ha UUID casuale e come unico riferimento la consultazione. La sua lunghezza è uniforme per tutte le schede della stessa votazione. La ricevuta e l’audit sono indipendenti dalle preferenze.
 
-Il collaudo del motore segreto richiede una consultazione privata di prova, fiduciari indipendenti e uno scrutinio verificato a partire da schede cifrate sul dispositivo dell’elettore. Con la configurazione predefinita di Helios il server conserva l’intera chiave, quindi la configurazione dei fiduciari è parte della verifica della riservatezza. Il primo rilascio del voto segreto deve includere anche le deleghe. Il collaudo deve verificare il limite di deleghe per delegato, una sola scheda valida per posizione rappresentata, la revoca prima del primo voto e la separazione tra verifica dell’autorizzazione e preferenze. [Funzionamento, fiduciari e modello di fiducia di Helios](https://github.com/benadida/helios-server/blob/master/docs/how-helios-works.md)
+Dopo la chiusura, lo scrutinio decifra le schede in memoria e confronta il numero di schede e quello delle deleghe esercitate con le ricevute prima di pubblicare. I report del voto segreto usano il totale per opzione e l’elenco degli aventi diritto. Nei report del voto palese le preferenze della scheda corrente sono attribuite all’elettore rappresentato, con il nome del delegato quando presente.

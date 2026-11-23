@@ -8,9 +8,13 @@ Aprire il link avvia l'accesso e non costituisce voto o presenza assembleare. Il
 
 I link risultano visibili nella casella di prova di Mailpit. Proteggi il browser, la posta e la chat WhatsApp usata per l'invio manuale. Per un invio assistito verifica identità e recapito prima di copiare un link, motiva la revoca quando è necessario sostituirlo e riferisci eventuali anomalie al responsabile tecnico.
 
+## Voto segreto
+
+Una copia del solo database contiene la partecipazione nominale e le schede cifrate, prive di riferimenti a elettori e ricevute. Il cifrato è autenticato con AES-GCM e una chiave derivata da `DJANGO_SECRET_KEY` per consultazione. Il server riceve le scelte durante l’invio ed è una parte fidata. Custodisci la chiave applicativa separatamente dai backup PostgreSQL. Il controllo del server e della sua chiave può compromettere la riservatezza. Anche i risultati aggregati possono rendere intuibile una scelta in una votazione con poche schede o unanime. [Documentazione AES-GCM](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM)
+
 ## Controlli applicativi
 
-Django gestisce password, verifica CSRF, cookie `HttpOnly` per la sessione e controllo dello staff. Il profilo di produzione impone HTTPS, cookie sicuri e TOTP. Gli account staff MVP hanno responsabilità nazionale. Le viste verificano l'appartenenza di elettori e risorse alla singola consultazione. Il backend convalida le schede e rifiuta la modalità segreta. Il limite per richieste sensibili usa contatori condivisi nei processi tramite PostgreSQL.
+Django gestisce password, verifica CSRF, cookie `HttpOnly` per la sessione e controllo dello staff. Il profilo di produzione impone HTTPS, cookie sicuri e TOTP. Gli account staff MVP hanno responsabilità nazionale. Le viste verificano l'appartenenza di elettori e risorse alla singola consultazione. Il backend convalida le schede in entrambe le modalità. Il limite per richieste sensibili usa contatori condivisi nei processi tramite PostgreSQL.
 
 Django restituisce direttive anti-cache e limita il referrer alla stessa origine con `Referrer-Policy: same-origin`. Il browser trasmette soltanto l’URL senza il frammento. La policy sui contenuti limita asset e richieste allo stesso sito. Gunicorn lascia spenti i log di accesso. Il proxy di un eventuale pilota deve scartare i body, gli identificatori delle sessioni, query e percorsi contenenti credenziali, anche da analisi, errori e tracing. Mantieni disattivato il debug con qualsiasi dato operativo. I documenti allegati rientrano nei dati riservati e vanno verificati prima del caricamento.
 

@@ -26,7 +26,7 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri ora** oppure **Programma l’apertura** e conferma l’operazione. Dallo stato programmato puoi tornare in bozza per fare modifiche. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale.
 5. Durante l’apertura, seleziona **Prepara inviti email**. Scegli la sezione o l’intera platea, personalizza oggetto e testo, verifica i destinatari e conferma l’accodamento.
 
-Nel menu **Modalità di voto** è disponibile **Palese (nominativo)**. L’opzione **Segreto** è disabilitata in attesa del motore dedicato. All’apertura si congelano quesiti, opzioni, regole e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
+Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega. La sostituzione è disponibile nel palese e il voto segreto è definitivo dalla conferma. All’apertura si congelano quesiti, opzioni, modalità e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 
 Per consultare lo storico apri la votazione conclusa da **Consultazioni** e scegli **Elettori della votazione**. La stessa matricola può riportare un recapito diverso in un’altra consultazione.
 
@@ -57,7 +57,7 @@ In sviluppo, controlla la notifica in Mailpit. Il link per una delega apre una s
 ## Inviare un sollecito ai non votanti
 
 1. Con la consultazione aperta, seleziona **Invia sollecito ai non votanti**. Mantieni **Tutte le sezioni** oppure restringi a una sezione della platea. Sono eleggibili i soci senza scheda acquisita. Una scheda bianca, un’astensione confermata e una scheda acquisita che il socio sta sostituendo valgono già come voto.
-2. Modifica **Oggetto** e **Messaggio** se necessario. Il sistema aggiunge nome del socio, titolo, scadenza Europe/Rome, link personale attivo, modalità palese e recapito di assistenza. Usa il modello neutro del sistema o un testo equivalente, privo di link e credenziali.
+2. Modifica **Oggetto** e **Messaggio** se necessario. Il sistema aggiunge nome del socio, titolo, scadenza Europe/Rome, link personale attivo, modalità di voto e recapito di assistenza. Usa il modello neutro del sistema o un testo equivalente, privo di link e credenziali.
 3. Seleziona **Verifica destinatari e messaggio**. Confronta posizioni verificate, email da accodare, esclusioni e motivazioni. In tabella trovi l’ultimo sollecito accettato da SMTP e il relativo conteggio per socio. L’esempio personalizzato mostra un segnaposto per il link.
 4. Premi **Invia sollecito a N soci**. La conferma vale per i destinatari idonei mostrati nell’anteprima. Se vuoi cambiare sezione o testo, prepara una nuova anteprima. Le anteprime scadono dopo 30 minuti. Il numero di messaggi può diminuire alla conferma o durante l’elaborazione, per esempio se nel frattempo un socio vota o scade la consultazione.
 5. Segui la campagna da **Storico invii** e premi **Aggiorna esiti** per aggiornare i conteggi. **Annulla gli invii ancora in coda** annulla le righe pendenti. Per i messaggi già presi in carico, consulta l’esito del tentativo. Il server di posta conserva i messaggi già affidati.
@@ -86,9 +86,12 @@ La dashboard mostra aventi diritto, votanti unici, affluenza, scadenza e indicat
 
 Dallo stato **Chiusa**, seleziona **Pubblica lo scrutinio** per rendere disponibili i report e accodare il riepilogo via email per ogni avente diritto, anche chi non ha votato. Il riepilogo contiene il totale degli aventi diritto, le schede acquisite e i conteggi per opzione e quesito. In locale le email sono recapitate in Mailpit agli indirizzi `example.invalid`. Lo stato degli invii è disponibile nello storico.
 
-**Risultati e report** contiene lo scrutinio per quesito, il CSV dei risultati, il CSV separato di partecipazione e il PDF riepilogativo non firmato. Per ogni quesito verifica le schede con risposta, le schede che lo hanno lasciato vuoto e le preferenze per opzione. Nei quesiti multipli le preferenze complessive possono superare il numero di schede con risposta.
+**Risultati e report** contiene lo scrutinio per quesito, il CSV dei risultati e il PDF riepilogativo non firmato. Per ogni quesito verifica le schede con risposta, le schede che lo hanno lasciato vuoto e le preferenze per opzione. Nei quesiti multipli le preferenze complessive possono superare il numero di schede con risposta.
 
-Il CSV di partecipazione contiene nominativi, sezione, stato di voto e orario dell’ultima acquisizione. Custodiscilo come documento riservato. Per la verbalizzazione distingui aventi diritto, votanti e presenze assembleari e applica le regole operative approvate dall’associazione.
+- Nel **Palese**, i PDF includono l’elenco dei votanti con le scelte per quesito e l’indicazione delle schede in delega. Dopo la pubblicazione lo staff può consultare le scelte anche in **Elettori della votazione**, aprendo il nominativo. Il CSV di partecipazione contiene nominativi, sezione, stato di voto e orario dell’ultima acquisizione.
+- Nel **Segreto**, i PDF includono l’elenco completo degli aventi diritto e i conteggi aggregati per quesito. Il CSV degli aventi diritto riporta matricola, nominativo e sezione.
+
+Custodisci i PDF e gli elenchi nominativi come documenti riservati.
 
 ## Quorum e rapporto assembleare
 

@@ -1,4 +1,5 @@
 from typing import ClassVar
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
@@ -19,6 +20,7 @@ class Election(models.Model):
 
     class Mode(models.TextChoices):
         NAMED = "named", "Palese (nominativo)"
+        SECRET = "secret", "Segreto"
 
     title = models.CharField(max_length=180)
     description = models.TextField(blank=True, max_length=6000)
@@ -42,7 +44,12 @@ class Election(models.Model):
         ordering: ClassVar = ["-created_at", "-pk"]
         constraints: ClassVar = [
             models.CheckConstraint(
-                condition=models.Q(mode="named"), name="election_named_only"
+                condition=models.Q(mode__in=["named", "secret"]),
+                name="election_valid_mode",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(mode="secret", allow_replacement=True),
+                name="secret_vote_is_final",
             ),
             models.CheckConstraint(
                 condition=models.Q(opens_at__isnull=True)
@@ -53,6 +60,17 @@ class Election(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def is_secret(self):
+        return self.mode == self.Mode.SECRET
+
+    def participation_records(self):
+        if self.is_secret:
+            return SubmissionReceipt.objects.filter(voter__election=self).annotate(
+                submitted_at=models.F("accepted_at")
+            )
+        return NamedBallot.objects.filter(voter__election=self)
 
 
 class AssemblyQuorum(models.Model):
@@ -192,6 +210,12 @@ class NamedBallot(models.Model):
     )
 
 
+class SecretBallot(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    election = models.ForeignKey(Election, on_delete=models.PROTECT)
+    ciphertext = models.BinaryField(editable=False)
+
+
 class VoterPresence(models.Model):
     class Source(models.TextChoices):
         EXPLICIT = "explicit", "Conferma esplicita"
@@ -252,6 +276,12 @@ class SubmissionReceipt(models.Model):
     fingerprint = models.CharField(max_length=64)
     revision = models.PositiveIntegerField()
     accepted_at = models.DateTimeField()
+    cast_by = models.ForeignKey(
+        ElectionVoter,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="proxy_receipts",
+    )
 
     class Meta:
         constraints: ClassVar = [

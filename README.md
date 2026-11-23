@@ -1,6 +1,6 @@
 # AIM Voto
 
-AIM Voto gestisce consultazioni online per Angeli in Moto ODV. Registra voti **palesi e nominativi**, presenze e, nelle consultazioni che le ammettono, deleghe. Con la conferma di presenza obbligatoria, il socio può conferire direttamente la delega dal proprio invito. La scheda resta associata al socio rappresentato. La pubblicazione dello scrutinio accoda il riepilogo dei risultati per gli aventi diritto. Il voto segreto è disabilitato. L'ambiente di sviluppo usa esclusivamente anagrafiche sintetiche e Mailpit.
+AIM Voto gestisce consultazioni online per Angeli in Moto ODV con voto **Palese (nominativo)** o **Segreto**, presenze e deleghe. Nel palese i PDF riportano i votanti e le loro scelte. Nel segreto il database conserva separatamente la partecipazione e le schede cifrate. I PDF riportano gli aventi diritto e i risultati aggregati. L'ambiente di sviluppo usa esclusivamente anagrafiche sintetiche e Mailpit.
 
 ## Avvio locale
 

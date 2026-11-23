@@ -63,5 +63,15 @@
       <div><a class="button secondary" href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a></div>
     {% endif %}
   </section>
+  {% if named_vote %}
+  <section class="card stack">
+    <h2>Scelte della scheda nominativa</h2>
+    <dl class="list">
+      {% for question, choices in named_vote %}
+        <div><dt>{{ question.text }}</dt><dd>{{ choices|join:", "|default:"Senza risposta" }}</dd></div>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}

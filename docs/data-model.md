@@ -4,7 +4,7 @@
 | --- | --- |
 | `Member` | Anagrafica preesistente, conservata per i riferimenti storici. |
 | `ImportBatch` | Consultazione, righe caricate temporaneamente, mappatura, autore, scadenza e riepilogo. La conferma svuota i dati di anteprima. |
-| `Election` | Titolo, descrizione, calendario, modalità palese vincolata, stato, regola di sostituzione e intervallo dei solleciti. |
+| `Election` | Titolo, descrizione, calendario, modalità palese o segreta, stato, regola di sostituzione e intervallo dei solleciti. Il voto segreto è definitivo. |
 | `AssemblyQuorum` | Impostazione facoltativa per consultazione. Registra criterio di conteggio, confronto, soglia assoluta o frazionaria, eventuale riferimento statutario, autore e data dell’ultimo salvataggio. |
 | `Question`, `Choice` | Quesiti e relative opzioni. Il tipo determina il massimo di preferenze. |
 | `ElectionDocument` | PDF privato associato alla consultazione, servito come allegato dopo verifica dell'autorizzazione. |
@@ -14,7 +14,8 @@
 | `Delegation` | Delegante, delegato, data e stato della richiesta. Vincoli per persone distinte e una sola richiesta attiva per delegante. Servizi e lock verificano la platea comune e la capienza del delegato. |
 | `DelegationAttachment` | PDF o JPG privato della richiesta presentata dal delegato, con nome del file e tipo verificato. Il documento è consultabile dallo staff della consultazione. |
 | `NamedBallot` | Una scheda corrente per `ElectionVoter`, con risposte, revisione e istante di acquisizione. La revisione aumenta a ogni sostituzione valida. Per una scheda per delega, `cast_by` registra la posizione del delegato. |
-| `SubmissionReceipt` | ID della richiesta, impronta HMAC, revisione e istante. Vincoli univoci per posizione/richiesta e posizione/revisione. Le ricevute delle revisioni precedenti non conservano le scelte in chiaro. |
+| `SecretBallot` | Scheda cifrata di lunghezza uniforme nella consultazione, con UUID casuale, consultazione e cifrato. |
+| `SubmissionReceipt` | ID della richiesta, impronta HMAC, revisione e istante. Vincoli univoci per posizione/richiesta e posizione/revisione. Nel segreto funge anche da registro di partecipazione e conserva l’eventuale delegato. L’impronta del segreto dipende solo dai dati di acquisizione. |
 | `ReminderCampaign` | Campagna per invito, sollecito, reinvio, link di delega o risultati. Un vincolo consente una sola campagna di risultati per consultazione. |
 | `EmailDelivery` | Posizione nella selezione di una campagna, stato, tentativi, motivo ed esito. Vincoli per coppia campagna-elettore, per invio ordinario pendente e per una sola notifica di approvazione per delega. |
 | `AuditEvent` | Metadati operativi, attori, date e riferimenti. Le operazioni sui link registrano posizione e azione, senza il valore della credenziale. |

@@ -3,7 +3,7 @@
 {% block content %}
 <a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
 <h1>Risultati e report</h1>
-<p>{{ election.title }} · Voto palese</p>
+<p>{{ election.title }} · Voto {{ election.get_mode_display|lower }}</p>
 <div class="stats">
   <div class="card"><strong>{{ eligible }}</strong><span>Aventi diritto</span></div>
   <div class="card"><strong>{{ total }}</strong><span>Schede valide</span></div>
@@ -23,7 +23,7 @@
 </div>
 <div class="actions lifecycle">
   <a class="button secondary" href="{% url 'voting:export' election.pk 'risultati-csv' %}">Risultati CSV</a>
-  <a class="button secondary" href="{% url 'voting:export' election.pk 'partecipazione-csv' %}">Elenco di partecipazione CSV</a>
+  <a class="button secondary" href="{% url 'voting:export' election.pk 'partecipazione-csv' %}">{% if election.is_secret %}Elenco aventi diritto CSV{% else %}Elenco di partecipazione CSV{% endif %}</a>
   <a class="button" href="{% url 'voting:export' election.pk 'report-pdf' %}">Report PDF</a>
   <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Rapporto assembleare</a>
 </div>

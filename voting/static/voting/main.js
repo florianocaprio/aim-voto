@@ -1,5 +1,21 @@
 "use strict";
 
+const electionMode = document.getElementById("id_mode");
+const allowReplacement = document.getElementById("id_allow_replacement");
+if (electionMode && allowReplacement) {
+  let namedReplacement = allowReplacement.checked;
+  function updateReplacement() {
+    const secret = electionMode.value === "secret";
+    allowReplacement.disabled = secret;
+    allowReplacement.checked = !secret && namedReplacement;
+  }
+  allowReplacement.addEventListener("change", () => {
+    namedReplacement = allowReplacement.checked;
+  });
+  electionMode.addEventListener("change", updateReplacement);
+  updateReplacement();
+}
+
 const redemption = document.querySelector("[data-redeem]");
 
 if (redemption) {

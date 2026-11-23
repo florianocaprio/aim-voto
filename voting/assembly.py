@@ -5,7 +5,7 @@ from django.db.models import Q
 
 from members.importing import cell_text
 
-from .models import Delegation, DelegationAttachment, NamedBallot
+from .models import Delegation, DelegationAttachment
 from .services import audit, database_now, is_open
 
 ACTIVE = (Delegation.State.PENDING, Delegation.State.APPROVED)
@@ -34,7 +34,7 @@ def request_delegation(election, grantor, external_id):
         raise ValidationError(
             "Indica l’ID di un altro avente diritto di questa consultazione."
         )
-    if NamedBallot.objects.filter(voter=grantor).exists():
+    if election.participation_records().filter(voter=grantor).exists():
         raise ValidationError("La tua posizione ha già una scheda registrata.")
     if grantor.delegations_given.filter(state__in=ACTIVE).exists():
         raise ValidationError("Hai già una delega in verifica o approvata.")
@@ -81,7 +81,7 @@ def request_received_delegation(election, delegate, fields):
         raise ValidationError(
             "Per questo delegante esiste già una richiesta in verifica o approvata."
         )
-    if NamedBallot.objects.filter(voter=grantor).exists():
+    if election.participation_records().filter(voter=grantor).exists():
         raise ValidationError(
             "La posizione del delegante ha già una scheda registrata."
         )
@@ -110,7 +110,7 @@ def request_received_delegation(election, delegate, fields):
 
 
 def validate_delegation_approval(election, grantor_id, delegate_id, existing_pk=None):
-    if NamedBallot.objects.filter(voter_id=grantor_id).exists():
+    if election.participation_records().filter(voter_id=grantor_id).exists():
         raise ValidationError(
             "La posizione del delegante ha già una scheda registrata."
         )
@@ -209,9 +209,11 @@ def decide_delegation(election, delegation, action, *, actor=None):
         else:
             delegation.state = status.REJECTED
     elif action == "revoke" and delegation.state in ACTIVE:
-        if NamedBallot.objects.filter(
-            voter_id=delegation.grantor_id, cast_by__isnull=False
-        ).exists():
+        if (
+            election.participation_records()
+            .filter(voter_id=delegation.grantor_id, cast_by__isnull=False)
+            .exists()
+        ):
             raise ValidationError(
                 "Il delegato ha già registrato una scheda. La delega resta valida."
             )

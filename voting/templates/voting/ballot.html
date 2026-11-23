@@ -4,11 +4,15 @@
 {% if preview %}<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>{% endif %}
 <section class="narrow stack">
   <div>
-    <p class="mode">{% if preview %}Anteprima amministrativa · {% endif %}Voto palese (nominativo)</p>
+    <p class="mode">{% if preview %}Anteprima amministrativa · {% endif %}Voto {{ election.get_mode_display|lower }}</p>
     <h1>{{ election.title }}</h1>
     <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
   </div>
-  <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
+  {% if election.is_secret %}
+    <div class="alert">Le scelte sono conservate in una scheda cifrata senza nominativo.</div>
+  {% else %}
+    <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
+  {% endif %}
   {% if voter and not scoped_link and election.allow_delegations %}
     <div><a class="button secondary" href="{% url 'voting:assembly' %}">Presenza e deleghe</a></div>
   {% endif %}
