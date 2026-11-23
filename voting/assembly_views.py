@@ -4,7 +4,6 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import assembly, reports, services
@@ -99,17 +98,6 @@ def voter_revoke(request, delegation_pk):
     return redirect("voting:assembly")
 
 
-def presence_records(election):
-    return (
-        VoterPresence.objects.filter(voter__election=election)
-        .select_related("voter")
-        .order_by(
-            "confirmed_at",
-            "pk",
-        )
-    )
-
-
 @administrator
 @require_GET
 def manage_assembly(request, pk):
@@ -123,7 +111,7 @@ def manage_assembly(request, pk):
         {
             "election": election,
             "is_open": services.is_open(election),
-            "presences": Paginator(presence_records(election), 40).get_page(
+            "presences": Paginator(reports.presence_records(election), 40).get_page(
                 request.GET.get("page")
             ),
             "delegations": delegations,
@@ -136,21 +124,7 @@ def manage_assembly(request, pk):
 @require_GET
 def presence_csv(request, pk):
     election = get_object_or_404(Election, pk=pk, opened_at__isnull=False)
-    rows = [
-        ["ID socio", "Nome", "Cognome", "Sezione", "Presenza confermata (Europe/Rome)"]
-    ]
-    for item in presence_records(election).iterator():
-        voter = item.voter
-        rows.append(
-            [
-                voter.external_id,
-                voter.first_name,
-                voter.last_name,
-                voter.section,
-                timezone.localtime(item.confirmed_at).isoformat(timespec="seconds"),
-            ]
-        )
-    return reports.csv_response("presenze.csv", rows)
+    return reports.presences_csv(election)
 
 
 @administrator

@@ -85,5 +85,10 @@ urlpatterns = [
         name="contact",
     ),
     path("gestione/<int:pk>/risultati/", views.results, name="results"),
+    path(
+        "gestione/<int:pk>/rapporto-assembleare/",
+        views.assembly_report_page,
+        name="assembly_report",
+    ),
     path("gestione/<int:pk>/risultati/<slug:kind>/", views.export, name="export"),
 ]

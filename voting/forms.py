@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from members.importing import PHONE_FORMAT, cell_text
 
-from .models import Election, ElectionDocument, ElectionVoter, Question
+from .models import AssemblyQuorum, Election, ElectionDocument, ElectionVoter, Question
 
 
 class RomeDateTimeField(forms.DateTimeField):
@@ -62,6 +62,41 @@ class ElectionForm(forms.ModelForm):
         if value <= timezone.now():
             raise ValidationError("Scegli una scadenza futura.")
         return value
+
+
+class AssemblyQuorumForm(forms.ModelForm):
+    class Meta:
+        model = AssemblyQuorum
+        fields: ClassVar = [
+            "basis",
+            "comparison",
+            "threshold_numerator",
+            "threshold_denominator",
+            "reference",
+        ]
+        labels: ClassVar = {
+            "basis": "Partecipazioni da conteggiare",
+            "comparison": "Condizione",
+            "threshold_numerator": "Soglia in persone o numeratore",
+            "threshold_denominator": "Denominatore della frazione (facoltativo)",
+            "reference": "Riferimento statutario (facoltativo)",
+        }
+        help_texts: ClassVar = {
+            "basis": "Se includi le rappresentanze esercitate, ogni posizione viene conteggiata una sola volta.",
+            "threshold_numerator": "Per una soglia di due terzi, inserisci 2 qui e 3 nel denominatore.",
+            "threshold_denominator": "Lascia vuoto se lo statuto indica un numero di persone.",
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        denominator = cleaned.get("threshold_denominator")
+        numerator = cleaned.get("threshold_numerator")
+        if numerator and denominator and numerator > denominator:
+            self.add_error(
+                "threshold_denominator",
+                "Il denominatore deve essere almeno pari al numeratore.",
+            )
+        return cleaned
 
 
 class QuestionForm(forms.Form):

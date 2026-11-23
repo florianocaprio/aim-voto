@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Rapporto assembleare{% endblock %}
+{% block content %}
+<a class="back" href="{% if election.status == 'tallied' %}{% url 'voting:results' election.pk %}{% else %}{% url 'voting:detail' election.pk %}{% endif %}">{{ election.title }}</a>
+<div class="page-heading"><div><p class="mode">Consultazione {{ election.pk }}</p><h1>Rapporto assembleare</h1></div></div>
+<div class="sections">
+  <section class="card stack">
+    <h2>Quorum statutario</h2>
+    {% if quorum %}<p class="muted">Ultimo salvataggio {{ quorum.updated_at|date:"d/m/Y H:i:s T" }}.</p>
+    {% else %}<p class="muted">Quorum da configurare.</p>{% endif %}
+    <form method="post" class="stack">{% csrf_token %}
+      {{ form.as_div }}
+      <div><button class="button">Salva quorum</button></div>
+    </form>
+  </section>
+  <section class="card stack">
+    <h2>Esportazione</h2>
+    <p>{{ legal_note }}</p>
+    {% if election.status == "tallied" %}
+      <p>Il pacchetto contiene il PDF, i prospetti di supporto e il manifesto SHA-256 di tutti i file.</p>
+      <div class="actions">
+        <a class="button" href="{% url 'voting:export' election.pk 'rapporto-assembleare-pdf' %}">Scarica rapporto PDF</a>
+        <a class="button secondary" href="{% url 'voting:export' election.pk 'rapporto-assembleare-zip' %}">Scarica pacchetto con impronte</a>
+      </div>
+    {% else %}
+      <p>I file saranno disponibili dopo la pubblicazione dello scrutinio.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

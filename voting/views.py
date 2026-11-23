@@ -16,9 +16,10 @@ from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from . import reports, services
+from . import assembly_report, reports, services
 from .access import administrator
 from .forms import (
+    AssemblyQuorumForm,
     ContactForm,
     DocumentForm,
     ElectionForm,
@@ -28,6 +29,7 @@ from .forms import (
 )
 from .models import (
     MAX_ELECTORATE_SIZE,
+    AssemblyQuorum,
     Choice,
     Delegation,
     Election,
@@ -878,6 +880,52 @@ def results(request, pk):
 
 
 @administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def assembly_report_page(request, pk):
+    election = get_election(pk, request.method == "POST")
+    if election.status not in {
+        Election.Status.DRAFT,
+        Election.Status.CLOSED,
+        Election.Status.TALLIED,
+    }:
+        raise Http404
+    quorum = AssemblyQuorum.objects.filter(election=election).first()
+    form = AssemblyQuorumForm(
+        request.POST if request.method == "POST" else None,
+        instance=quorum or AssemblyQuorum(election=election),
+    )
+    if request.method == "POST" and form.is_valid():
+        if quorum is None or form.has_changed():
+            configured = form.save(commit=False)
+            configured.updated_by = request.user
+            configured.save()
+            services.audit(
+                "quorum_assembleare_registrato",
+                actor=request.user,
+                election=election,
+                details={
+                    "criterio": configured.basis,
+                    "condizione": configured.comparison,
+                    "numeratore": configured.threshold_numerator,
+                    "denominatore": configured.threshold_denominator,
+                },
+            )
+        messages.success(request, "Quorum assembleare salvato.")
+        return redirect("voting:assembly_report", pk=pk)
+    return render(
+        request,
+        "voting/assembly_report.html",
+        {
+            "election": election,
+            "quorum": quorum,
+            "form": form,
+            "legal_note": assembly_report.LEGAL_NOTE,
+        },
+    )
+
+
+@administrator
 @require_GET
 def export(request, pk, kind):
     election = tallied_election(pk)
@@ -887,4 +935,6 @@ def export(request, pk, kind):
         return reports.participation_csv(election)
     if kind == "report-pdf":
         return reports.summary_pdf(election)
+    if kind in {"rapporto-assembleare-pdf", "rapporto-assembleare-zip"}:
+        return assembly_report.export(election, package=kind.endswith("-zip"))
     raise Http404

@@ -83,3 +83,16 @@ La dashboard mostra aventi diritto, votanti unici, affluenza, scadenza e indicat
 Dallo stato **Chiusa**, seleziona **Pubblica lo scrutinio** per rendere disponibili i risultati all’amministrazione. **Risultati e report** contiene lo scrutinio per quesito, il CSV dei risultati, il CSV separato di partecipazione e il PDF riepilogativo non firmato. Per ogni quesito verifica le schede con risposta, le schede che lo hanno lasciato vuoto e le preferenze per opzione. Nei quesiti multipli le preferenze complessive possono superare il numero di schede con risposta.
 
 Il CSV di partecipazione contiene nominativi, sezione, stato di voto e orario dell’ultima acquisizione. Custodiscilo come documento riservato. Per la verbalizzazione distingui aventi diritto, votanti e presenze assembleari e applica le regole operative approvate dall’associazione.
+
+## Quorum e rapporto assembleare
+
+1. Apri **Quorum assembleare** dalla bozza o da una consultazione chiusa. Dopo la pubblicazione dello scrutinio lo trovi in **Risultati e report → Rapporto assembleare**.
+2. Seleziona **Presenze confermate** oppure **Presenze confermate e deleganti con scheda acquisita**. Nel secondo caso un socio presente e anche rappresentato conta una sola volta. Una delega approvata conta come esercitata quando esiste una scheda acquisita per quella posizione, anche bianca.
+3. Registra la soglia come numero di persone oppure come frazione degli aventi diritto congelati all’apertura. Per una soglia strettamente superiore alla metà, scegli **Più di**, numeratore `1` e denominatore `2`. Con otto aventi diritto il minimo risultante è cinque. Puoi indicare il riferimento statutario. Il rapporto riporta la data dell’ultimo salvataggio e distingue il raggiungimento matematico di una soglia dal caso in cui il criterio sia ancora da configurare.
+4. Dopo lo scrutinio, usa **Scarica rapporto PDF** per il documento o **Scarica pacchetto con impronte** per ottenere lo stesso tipo di rapporto insieme ai prospetti di risultati, partecipazione, presenze, deleghe e scrutinio generati in un’unica esportazione.
+
+Il PDF mostra identificativo, giorni e orari effettivi di apertura e chiusura, ora di esportazione in Europe/Rome, esiti per quesito e impronte SHA-256 dei prospetti. I partecipanti unici nel riepilogo sono le persone che hanno confermato presenza o inviato una scheda, di persona o per delega. Il calcolo del quorum usa il criterio scelto al punto 2. In `deleghe.csv` trovi per ogni richiesta stato e presenza di una scheda acquisita per delega.
+
+Il pacchetto contiene i dati di presenze e deleghe e va custodito come materiale riservato. Dopo l’estrazione, esegui `shasum -a 256 -c SHA256SUMS.txt` dalla cartella dei file per confrontare gli SHA-256, compreso quello del PDF contenuto nello stesso pacchetto.
+
+Il rapporto verifica matematicamente la soglia registrata. La qualificazione giuridica delle partecipazioni elettroniche e la valida costituzione dell’assemblea restano da accertare secondo il procedimento concordato con il notaio.
