@@ -4,6 +4,7 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import DataError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -19,6 +20,7 @@ from mailings.models import (
 )
 from mailings.worker import process_next
 from voting import proxy_access
+from voting.forms import ReceivedDelegationForm
 from voting.models import Delegation, DelegationAttachment, NamedBallot
 
 from .support import add_members, election_with_motion, open_election, redeem, staff
@@ -51,17 +53,14 @@ class DocumentedDelegationTests(TestCase):
         redeem(self.client, self.delegate)
         self.form = reverse("voting:received_delegation")
 
-    def request(self, grantor, *, filename="domanda.pdf", content=None, **fields):
+    def upload_path(self, grantor):
+        return reverse("voting:received_delegation_file", args=[grantor.pk])
+
+    def request(self, grantor, *, filename="domanda.pdf", content=None):
         pdf = attachment_pdf() if content is None else content
         return self.client.post(
-            self.form,
-            {
-                "first_name": grantor.first_name,
-                "last_name": grantor.last_name,
-                "external_id": grantor.external_id,
-                "file": SimpleUploadedFile(filename, pdf),
-                **fields,
-            },
+            self.upload_path(grantor),
+            {"file": SimpleUploadedFile(filename, pdf)},
         )
 
     def decision(self, item, action):
@@ -121,9 +120,6 @@ class DocumentedDelegationTests(TestCase):
     ):
         grantor = self.grantors[0]
         self.assertContains(
-            self.request(grantor, first_name="Nome errato"), "devono corrispondere"
-        )
-        self.assertContains(
             self.request(grantor, filename="domanda.jpg", content=b"fake"),
             "PDF o JPG valido",
         )
@@ -147,6 +143,56 @@ class DocumentedDelegationTests(TestCase):
         self.assertEqual(result["Content-Type"], "image/jpeg")
         self.assertIn("attachment", result["Content-Disposition"])
         self.assertEqual(b"".join(result.streaming_content), jpeg)
+
+    def test_search_selects_a_grantor_in_the_same_electorate(self):
+        grantor = self.grantors[0]
+        grantor.first_name = "Àda"
+        grantor.last_name = "Rossi"
+        grantor.save(update_fields=["first_name", "last_name"])
+        response = self.client.get(self.form, {"q": "ross ada", "format": "json"})
+        (candidate,) = response.json()["candidates"]
+        self.assertEqual(
+            candidate,
+            {
+                "first_name": "Àda",
+                "last_name": "Rossi",
+                "external_id": grantor.external_id,
+                "url": self.upload_path(grantor),
+            },
+        )
+        self.assertContains(
+            self.client.get(self.form, {"q": grantor.external_id}), "Àda Rossi"
+        )
+        self.assertEqual(
+            Client().get(self.form, {"q": "ross", "format": "json"}).status_code, 403
+        )
+        self.assertContains(self.client.get(candidate["url"]), grantor.external_id)
+        self.assertEqual(
+            self.client.get(self.upload_path(self.delegate)).status_code, 404
+        )
+        other_election, *_ = election_with_motion(
+            self.actor, title="Consultazione distinta"
+        )
+        (outsider,) = open_election(other_election, [grantor.member])
+        self.assertEqual(self.request(outsider).status_code, 404)
+        self.assertFalse(Delegation.objects.exists())
+
+    def test_upload_read_error_is_reported_on_the_form(self):
+        document = SimpleUploadedFile("domanda.pdf", attachment_pdf())
+        form = ReceivedDelegationForm({}, {"file": document})
+        with patch.object(document.file, "read", side_effect=OSError):
+            self.assertFalse(form.is_valid())
+        self.assertIn("Impossibile leggere il documento", str(form.errors["file"]))
+
+    def test_attachment_save_error_does_not_leave_a_delegation(self):
+        grantor = self.grantors[0]
+        with patch(
+            "voting.assembly.DelegationAttachment.objects.create", side_effect=DataError
+        ):
+            response = self.request(grantor)
+        self.assertContains(response, "Salvataggio del documento non riuscito")
+        self.assertFalse(grantor.delegations_given.exists())
+        self.assertEqual(self.request(grantor).status_code, 302)
 
     def test_documented_pending_and_approved_requests_share_the_quota(self):
         original = Client()

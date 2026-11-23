@@ -1,9 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Cerca un socio a cui delegare{% endblock %}
+{% block title %}{% if received %}Cerca il delegante{% else %}Cerca un socio a cui delegare{% endif %}{% endblock %}
 {% block content %}
-<a class="back" href="{% url 'voting:ballot' %}">Torna alla tua scheda</a>
+{% if received %}
+  <a class="back" href="{% url 'voting:assembly' %}">Deleghe</a>
+{% else %}
+  <a class="back" href="{% url 'voting:ballot' %}">Torna alla tua scheda</a>
+{% endif %}
 <p class="mode">{{ election.title }}</p>
-<h1>Cerca un socio a cui delegare</h1>
+<h1>{% if received %}Cerca il socio che ti ha delegato{% else %}Cerca un socio a cui delegare{% endif %}</h1>
 <section class="card narrow stack" data-delegate-search>
   <form method="get" class="stack">
     <div>

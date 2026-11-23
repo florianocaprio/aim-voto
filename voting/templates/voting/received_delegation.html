@@ -4,7 +4,9 @@
 <a class="back" href="{% url 'voting:assembly' %}">Deleghe</a>
 <div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>Presenta una delega ricevuta</h1></div></div>
 <section class="card stack narrow">
-  <p>Indica il socio per conto del quale vuoi votare. Lo staff verifica la domanda compilata e, dopo l’approvazione, ti invia un link dedicato.</p>
+  <p>Delegante <strong>{{ grantor.first_name }} {{ grantor.last_name }}</strong> · Matricola {{ grantor.external_id }}</p>
+  <div><a href="{% url 'voting:received_delegation' %}">Cambia delegante</a></div>
+  <p>Allega la domanda compilata. Dopo l’approvazione dello staff riceverai il link dedicato.</p>
   <p class="muted">Deleghe riservate o approvate {{ reserved }} su {{ limit }}.</p>
   <form method="post" enctype="multipart/form-data" class="stack">
     {% csrf_token %}

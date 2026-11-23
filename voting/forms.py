@@ -228,11 +228,9 @@ class DocumentForm(forms.Form):
 
 
 class ReceivedDelegationForm(forms.Form):
-    first_name = forms.CharField(label="Nome del delegante", max_length=100)
-    last_name = forms.CharField(label="Cognome del delegante", max_length=100)
-    external_id = forms.CharField(label="Matricola del delegante", max_length=64)
     file = forms.FileField(
         label="Domanda compilata (PDF o JPG, massimo 3 MB)",
+        max_length=150,
         widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.jpg,.jpeg"}),
     )
 
@@ -240,7 +238,12 @@ class ReceivedDelegationForm(forms.Form):
         upload = self.cleaned_data["file"]
         if upload.size > 3 * 1024 * 1024:
             raise ValidationError("Il documento supera il limite di 3 MB.")
-        content = upload.read()
+        try:
+            content = upload.read()
+        except (OSError, ValueError) as exc:
+            raise ValidationError(
+                "Impossibile leggere il documento. Seleziona di nuovo il file."
+            ) from exc
         extension = PurePath(upload.name).suffix.lower()
         if extension == ".pdf" and content.startswith(b"%PDF-"):
             return upload.name[:150], "application/pdf", content
@@ -254,6 +257,7 @@ class ReceivedDelegationForm(forms.Form):
                 UnidentifiedImageError,
                 Image.DecompressionBombError,
                 OSError,
+                SyntaxError,
                 ValueError,
             ):
                 pass

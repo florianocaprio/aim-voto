@@ -16,8 +16,13 @@ urlpatterns = [
     ),
     path(
         "scheda/deleghe/presenta/",
-        assembly_views.submit_received_delegation,
+        assembly_views.find_grantor,
         name="received_delegation",
+    ),
+    path(
+        "scheda/deleghe/presenta/<int:grantor_pk>/",
+        assembly_views.submit_received_delegation,
+        name="received_delegation_file",
     ),
     path(
         "scheda/deleghe/<int:delegation_pk>/", views.proxy_ballot, name="proxy_ballot"

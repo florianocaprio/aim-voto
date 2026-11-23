@@ -3,7 +3,7 @@ from io import BytesIO
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -39,17 +39,39 @@ def require_direct_delegation(election):
 
 @require_GET
 def find_delegate(request):
+    return delegation_search(request, received=False)
+
+
+@require_http_methods(["GET", "POST"])
+def find_grantor(request):
+    return delegation_search(request, received=True)
+
+
+def delegation_search(request, *, received):
     voter = voter_context(request)
     as_json = request.GET.get("format") == "json"
     if voter is None:
+        if request.method == "POST":
+            raise PermissionDenied
         return (
             JsonResponse({"error": "Riapri il link personale."}, status=403)
             if as_json
             else redirect("voting:ballot")
         )
     election = voter.election
-    require_direct_delegation(election)
-    if (
+    if received:
+        if not election.allow_delegations or not services.is_open(election):
+            raise Http404
+        if request.method == "POST":
+            messages.error(
+                request, "Cerca il delegante prima di allegare il documento."
+            )
+            return redirect("voting:received_delegation")
+        selection_route = "voting:received_delegation_file"
+    else:
+        require_direct_delegation(election)
+        selection_route = "voting:confirm_direct_delegation"
+    if not received and (
         voter.delegations_given.filter(state__in=assembly.ACTIVE).exists()
         or election.participation_records().filter(voter=voter).exists()
     ):
@@ -61,9 +83,7 @@ def find_delegate(request):
         if services.admit_request("ricerca-delegato", voter.pk, limit=60, seconds=60):
             candidates = assembly.search_delegates(voter, query)
             for candidate in candidates:
-                candidate["url"] = reverse(
-                    "voting:confirm_direct_delegation", args=[candidate.pop("pk")]
-                )
+                candidate["url"] = reverse(selection_route, args=[candidate.pop("pk")])
         else:
             error = "Troppi tentativi. Riprova fra un minuto."
     status = 429 if error else 200
@@ -77,6 +97,7 @@ def find_delegate(request):
             "query": query,
             "candidates": candidates,
             "error": error,
+            "received": received,
         },
         status=status,
     )
@@ -203,7 +224,7 @@ def voter_revoke(request, delegation_pk):
 
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
-def submit_received_delegation(request):
+def submit_received_delegation(request, grantor_pk):
     if request.method == "POST":
         election, voter = lock_voter(request)
     else:
@@ -213,27 +234,40 @@ def submit_received_delegation(request):
         election = voter.election
     if not election.allow_delegations or not services.is_open(election):
         raise Http404
+    grantor = get_object_or_404(election.voters.exclude(pk=voter.pk), pk=grantor_pk)
     form = ReceivedDelegationForm(
         request.POST if request.method == "POST" else None,
         request.FILES or None,
     )
     if request.method == "POST" and form.is_valid():
-        try:
-            if not services.admit_request(
-                "delega-documentale", voter.pk, limit=8, seconds=60
-            ):
-                raise ValidationError("Troppi tentativi. Riprova fra un minuto.")
-            assembly.request_received_delegation(election, voter, form.cleaned_data)
-        except ValidationError as exc:
-            form.add_error(None, exc)
+        if not services.admit_request(
+            "delega-documentale", voter.pk, limit=8, seconds=60
+        ):
+            form.add_error(None, "Troppi tentativi. Riprova fra un minuto.")
         else:
-            messages.success(request, "Richiesta con allegato presentata allo staff.")
-            return redirect("voting:assembly")
+            try:
+                with transaction.atomic():
+                    assembly.request_received_delegation(
+                        election, voter, grantor, form.cleaned_data["file"]
+                    )
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            except DatabaseError:
+                form.add_error(
+                    "file",
+                    "Salvataggio del documento non riuscito. Seleziona di nuovo il file e riprova.",
+                )
+            else:
+                messages.success(
+                    request, "Richiesta con allegato presentata allo staff."
+                )
+                return redirect("voting:assembly")
     return render(
         request,
         "voting/received_delegation.html",
         {
             "election": election,
+            "grantor": grantor,
             "form": form,
             "reserved": assembly.reserved_slots(election, voter.pk).count(),
             "limit": assembly.delegation_limit(election.voters.count()),

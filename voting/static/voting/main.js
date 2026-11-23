@@ -123,7 +123,7 @@ if (delegateSearch) {
       }
       results.hidden = data.candidates.length === 0;
       status.textContent = data.candidates.length
-        ? "Seleziona il socio a cui vuoi delegare."
+        ? "Seleziona il socio."
         : "Nessun risultato. Prova con un altro nome o matricola.";
     } catch {
       if (!controller.signal.aborted) status.textContent = "Ricerca non disponibile. Riprova.";

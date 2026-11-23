@@ -3,8 +3,6 @@ import unicodedata
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 
-from members.importing import cell_text
-
 from .models import Delegation, DelegationAttachment
 from .services import audit, database_now, is_open
 
@@ -60,22 +58,15 @@ def reserved_slots(election, delegate_id):
     )
 
 
-def request_received_delegation(election, delegate, fields):
+def request_received_delegation(election, delegate, grantor, document):
     now = require_delegations_open(election)
-    grantor = (
-        election.voters.filter(external_id=cell_text(fields["external_id"]))
-        .exclude(pk=delegate.pk)
-        .first()
-    )
-    if grantor is None or (
-        grantor.first_name.casefold(),
-        grantor.last_name.casefold(),
-    ) != (
-        cell_text(fields["first_name"]).casefold(),
-        cell_text(fields["last_name"]).casefold(),
+    if (
+        grantor.election_id != election.pk
+        or delegate.election_id != election.pk
+        or grantor.pk == delegate.pk
     ):
         raise ValidationError(
-            "Nome, cognome e matricola devono corrispondere a un altro avente diritto."
+            "Seleziona un altro avente diritto a questa consultazione."
         )
     if grantor.delegations_given.filter(state__in=ACTIVE).exists():
         raise ValidationError(
@@ -93,7 +84,7 @@ def request_received_delegation(election, delegate, fields):
     delegation = Delegation.objects.create(
         grantor=grantor, delegate=delegate, requested_at=now
     )
-    filename, mime_type, content = fields["file"]
+    filename, mime_type, content = document
     DelegationAttachment.objects.create(
         delegation=delegation,
         filename=filename,
