@@ -5,6 +5,7 @@
   <p class="mode">Voto palese (nominativo)</p>
   <h1>Riepilogo della scheda</h1>
   <p>{{ election.title }}</p>
+  {% if delegation %}<p>Voto per {{ delegation.grantor.first_name }} {{ delegation.grantor.last_name }} con delega approvata.</p>{% endif %}
   {% if blank %}<p class="alert">Stai per registrare una scheda bianca.</p>{% endif %}
   <dl class="card list">
     {% for question, selections in summary %}<div><dt>{{ question.text }}</dt><dd>{{ selections|join:", "|default:"Senza risposta" }}</dd></div>{% endfor %}
@@ -12,7 +13,7 @@
   <form method="post" action="{% url 'voting:submit' %}" class="actions">{% csrf_token %}
     <input type="hidden" name="payload" value="{{ payload }}">
     <button class="button">{% if replacement %}Conferma sostituzione{% else %}Conferma e registra il voto{% endif %}</button>
-    <a class="button secondary" href="{% url 'voting:ballot' %}{% if replacement %}?modifica=1{% endif %}">Torna alla scheda</a>
+    <a class="button secondary" href="{{ ballot_url }}{% if replacement %}?modifica=1{% endif %}">Torna alla scheda</a>
   </form>
 </section>
 {% endblock %}

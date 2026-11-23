@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -29,6 +30,7 @@ from .forms import (
 )
 from .models import (
     Choice,
+    Delegation,
     Election,
     ElectionDocument,
     ElectionVoter,
@@ -640,6 +642,7 @@ def ballot_page(
     editing=False,
     error=None,
     status=200,
+    delegation=None,
 ):
     if voter is None:
         return render(request, "voting/unavailable.html", status=403)
@@ -653,6 +656,12 @@ def ballot_page(
         {
             "election": voter.election,
             "voter": voter,
+            "delegation": delegation,
+            "delegated_out": delegation is None
+            and Delegation.objects.filter(
+                grantor=voter,
+                state=Delegation.State.APPROVED,
+            ).exists(),
             "record": ballot_record,
             "editing": editing,
             "questions": [
@@ -671,11 +680,41 @@ def ballot(request):
     voter = voter_context(request)
     if voter is None:
         return ballot_page(request, None)
+    return voter_ballot(request, voter)
+
+
+@require_http_methods(["GET", "POST"])
+def proxy_ballot(request, delegation_pk):
+    actor = voter_context(request)
+    if actor is None:
+        return ballot_page(request, None)
+    delegation = get_object_or_404(
+        Delegation.objects.select_related("grantor__election"),
+        pk=delegation_pk,
+        delegate=actor,
+        grantor__election=actor.election,
+        state=Delegation.State.APPROVED,
+    )
+    return voter_ballot(request, delegation.grantor, delegation)
+
+
+def voter_ballot(request, voter, delegation=None):
     current = NamedBallot.objects.filter(voter=voter).first()
     if request.method == "GET" or not services.is_open(voter.election):
         return ballot_page(
-            request, voter, current, editing=request.GET.get("modifica") == "1"
+            request,
+            voter,
+            current,
+            editing=request.GET.get("modifica") == "1",
+            delegation=delegation,
         )
+    if (
+        delegation is None
+        and Delegation.objects.filter(
+            grantor=voter, state=Delegation.State.APPROVED
+        ).exists()
+    ):
+        return ballot_page(request, voter, current, status=409)
     if current and not voter.election.allow_replacement:
         return ballot_page(
             request,
@@ -683,6 +722,7 @@ def ballot(request):
             current,
             error="La sostituzione non è consentita.",
             status=409,
+            delegation=delegation,
         )
     questions = services.ballot_questions(voter.election)
     try:
@@ -706,12 +746,18 @@ def ballot(request):
             else "Opzioni non valide."
         )
         return ballot_page(
-            request, voter, current, editing=True, error=error, status=400
+            request,
+            voter,
+            current,
+            editing=True,
+            error=error,
+            status=400,
+            delegation=delegation,
         )
-    payload = signing.dumps(
-        [request.session[SESSION_KEY], str(uuid4()), revision, answers],
-        salt=SUBMISSION_SALT,
-    )
+    data = [request.session[SESSION_KEY], str(uuid4()), revision, answers]
+    if delegation:
+        data.append(delegation.pk)
+    payload = signing.dumps(data, salt=SUBMISSION_SALT)
     summary = [
         (
             question,
@@ -732,6 +778,10 @@ def ballot(request):
             "payload": payload,
             "blank": not answers,
             "replacement": bool(current),
+            "delegation": delegation,
+            "ballot_url": reverse("voting:proxy_ballot", args=[delegation.pk])
+            if delegation
+            else reverse("voting:ballot"),
         },
     )
 
@@ -742,14 +792,18 @@ def submit(request):
     if voter is None:
         return ballot_page(request, None)
     try:
-        session_data, request_id, revision, answers = signing.loads(
+        session_data, request_id, revision, answers, *proxy = signing.loads(
             request.POST.get("payload", ""),
             salt=SUBMISSION_SALT,
         )
         if session_data != request.session[SESSION_KEY]:
             raise signing.BadSignature
         receipt, current = services.record_ballot(
-            *session_data, request_id, revision, answers
+            *session_data,
+            request_id,
+            revision,
+            answers,
+            delegation_id=proxy[0] if proxy else None,
         )
     except (signing.BadSignature, ValueError):
         return render(
@@ -775,6 +829,7 @@ def submit(request):
             "election": voter.election,
             "receipt": receipt,
             "current": current,
+            "proxy": bool(proxy),
         },
     )
 

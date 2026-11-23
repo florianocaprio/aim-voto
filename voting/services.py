@@ -13,6 +13,7 @@ from django.utils.crypto import salted_hmac
 
 from .models import (
     AuditEvent,
+    Delegation,
     Election,
     ElectionVoter,
     NamedBallot,
@@ -217,7 +218,14 @@ def validate_answers(questions: list[Question], answers):
 
 @transaction.atomic
 def record_ballot(
-    voter_id, election_id, credential_version, request_id, revision, answers
+    voter_id,
+    election_id,
+    credential_version,
+    request_id,
+    revision,
+    answers,
+    *,
+    delegation_id=None,
 ):
     election = lock_election(election_id)
     credential = VotingCredential.objects.filter(
@@ -225,13 +233,31 @@ def record_ballot(
     ).first()
     if credential is None:
         raise ValidationError("Il link è stato revocato. Utilizza quello più recente.")
+    cast_by_id = None
+    if delegation_id is not None:
+        delegation = Delegation.objects.filter(
+            pk=delegation_id,
+            delegate_id=voter_id,
+            grantor__election=election,
+            state=Delegation.State.APPROVED,
+        ).first()
+        if not election.allow_delegations or delegation is None:
+            raise ValidationError("La delega non è più valida.")
+        cast_by_id, voter_id = voter_id, delegation.grantor_id
+    elif Delegation.objects.filter(
+        grantor_id=voter_id, state=Delegation.State.APPROVED
+    ).exists():
+        raise ValidationError("La posizione è assegnata al delegato autorizzato.")
     ballot = NamedBallot.objects.filter(voter_id=voter_id).first()
     current_revision = ballot.revision if ballot else 0
     answers = validate_answers(ballot_questions(election), answers)
     request_id = UUID(str(request_id))
+    fingerprint_parts = [voter_id, str(request_id), revision, answers]
+    if cast_by_id is not None:
+        fingerprint_parts.extend([cast_by_id, delegation_id])
     fingerprint = salted_hmac(
         "aim-voto.submission",
-        json.dumps([voter_id, str(request_id), revision, answers], sort_keys=True),
+        json.dumps(fingerprint_parts, sort_keys=True),
         algorithm="sha256",
     ).hexdigest()
     receipt = SubmissionReceipt.objects.filter(
@@ -261,6 +287,7 @@ def record_ballot(
             "answers": answers,
             "revision": next_revision,
             "submitted_at": accepted_at,
+            "cast_by_id": cast_by_id,
         },
     )
     receipt = SubmissionReceipt.objects.create(
@@ -270,6 +297,17 @@ def record_ballot(
         revision=next_revision,
         accepted_at=accepted_at,
     )
+    if cast_by_id is not None:
+        audit(
+            "scheda_per_delega",
+            election=election,
+            voter=delegation.grantor,
+            details={
+                "delega": delegation_id,
+                "delegato": cast_by_id,
+                "revisione": next_revision,
+            },
+        )
     return receipt, True
 
 

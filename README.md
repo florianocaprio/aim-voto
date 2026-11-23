@@ -1,6 +1,6 @@
 # AIM Voto
 
-AIM Voto gestisce consultazioni online per Angeli in Moto ODV. Il primo MVP registra voti **palesi e nominativi**. La scheda resta associata al socio. Il voto segreto è disabilitato. L'ambiente di sviluppo usa esclusivamente anagrafiche sintetiche e Mailpit.
+AIM Voto gestisce consultazioni online per Angeli in Moto ODV. Registra voti **palesi e nominativi**, presenze confermate e, nelle consultazioni che lo prevedono, voti per delega verificata dallo staff. La scheda resta associata al socio rappresentato. Il voto segreto è disabilitato. L'ambiente di sviluppo usa esclusivamente anagrafiche sintetiche e Mailpit.
 
 ## Avvio locale
 
@@ -64,6 +64,7 @@ La CI esegue i medesimi controlli e analizza la cronologia Git con Gitleaks. `do
 - In Chrome sono stati importati tre soci sintetici e ricevuti i tre inviti in Mailpit. Dopo due voti e una sostituzione, il sollecito ha prodotto un solo nuovo messaggio con il link personale già assegnato al terzo socio. Lo scrutinio ha contato due votanti e due schede correnti, usando la scelta sostitutiva. Sono state verificate le esportazioni PDF e CSV.
 - La copia del link negli appunti è stata verificata in Chrome. L'interfaccia elettore è stata provata con l'emulazione di iPhone 13 e Pixel 7. Restano da eseguire le prove su telefoni fisici e il collaudo di carico fino a 2.000 elettori.
 - Il dump dimostrativo è stato ripristinato in un database PostgreSQL separato. Il ripristino ha conservato tre soci, tre posizioni elettorali, due schede correnti e tre ricevute, con revisione massima 2.
+- Dopo l’aggiunta di presenze e deleghe, la suite PostgreSQL è passata con 58 test, compresi il cambio di soglia a 501 aventi diritto e le approvazioni concorrenti. Il percorso da conferma presenza a voto per delega è stato provato in Chrome con contesti separati.
 
 ## Versioni e dipendenze
 

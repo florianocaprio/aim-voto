@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Presenza e deleghe{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:ballot' %}">Torna alla tua scheda</a>
+<div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>{% if election.allow_delegations %}Presenza e deleghe{% else %}Presenza{% endif %}</h1></div></div>
+<div class="stack narrow">
+  <section class="card stack">
+    <h2>Presenza di {{ voter.first_name }} {{ voter.last_name }}</h2>
+    {% if presence %}
+      <p>Presenza confermata il {{ presence.confirmed_at|date:"d/m/Y H:i T" }}.</p>
+    {% elif is_open %}
+      <p>Conferma la tua presenza con un’azione distinta dal voto.</p>
+      <form method="post">{% csrf_token %}<button class="button secondary" name="action" value="presence">Confermo la mia presenza</button></form>
+    {% else %}
+      <p>La consultazione è chiusa. Le conferme di presenza sono terminate.</p>
+    {% endif %}
+  </section>
+  {% if election.allow_delegations %}
+  <section class="card stack">
+    <h2>La tua delega</h2>
+    {% if last_request %}
+      <p>Ultima delega a {{ last_request.delegate.first_name }} {{ last_request.delegate.last_name }} · {{ last_request.get_state_display }}</p>
+    {% endif %}
+    {% if is_open %}
+      {% if active %}
+        <p>Puoi revocare la delega fino alla registrazione della prima scheda da parte del delegato.</p>
+        <form method="post" action="{% url 'voting:voter_revoke' active.pk %}">{% csrf_token %}<button class="button secondary">Revoca la delega</button></form>
+      {% else %}
+        <form method="post" class="stack">{% csrf_token %}
+          <div><label for="delegate-id">ID socio della persona a cui deleghi il voto</label><input id="delegate-id" name="external_id" maxlength="64" required></div>
+          <div><button class="button" name="action" value="delegate">Presenta la delega per la verifica</button></div>
+        </form>
+      {% endif %}
+    {% endif %}
+  </section>
+  {% if received %}
+  <section class="card stack">
+    <h2>Deleghe che puoi esercitare</h2>
+    {% for item in received %}
+      <p>{{ item.grantor.first_name }} {{ item.grantor.last_name }}{% if is_open %} · <a href="{% url 'voting:proxy_ballot' item.pk %}">Apri scheda in delega</a>{% endif %}</p>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

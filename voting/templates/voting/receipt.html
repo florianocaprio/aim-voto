@@ -6,6 +6,7 @@
   <h1>Ricevuta di acquisizione</h1>
   <p>La scheda è stata registrata il {{ receipt.accepted_at|date:"d/m/Y" }} alle {{ receipt.accepted_at|date:"H:i:s T" }}.</p>
   <p>Versione {{ receipt.revision }} · {% if current %}Scheda corrente{% else %}Scheda sostituita da un invio successivo{% endif %}</p>
-  <div><a class="button secondary" href="{% url 'voting:ballot' %}">Torna alla votazione</a></div>
+  {% if proxy %}<p>Voto per {{ receipt.voter.first_name }} {{ receipt.voter.last_name }} con delega approvata.</p>{% endif %}
+  <div><a class="button secondary" href="{% if proxy %}{% url 'voting:assembly' %}{% else %}{% url 'voting:ballot' %}{% endif %}">Torna alla votazione</a></div>
 </section>
 {% endblock %}
