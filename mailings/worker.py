@@ -4,6 +4,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from voting import proxy_access
+from voting.models import Delegation
 from voting.services import database_now, is_open, lock_election
 
 from .campaigns import active_link, exclusion, recipients, render_body
@@ -13,6 +15,7 @@ from .models import (
     DeliveryState,
     DispatchSchedule,
     EmailDelivery,
+    MailKind,
 )
 from .transport import PreparedMessage, send_local_message
 
@@ -62,7 +65,25 @@ def _claim(delivery_id, election_id):
     if reason:
         _skip(delivery, reason, now)
         return None
-    link = active_link(voter)
+    represented = None
+    if delivery.kind == MailKind.PROXY:
+        delegation = (
+            Delegation.objects.select_related("grantor")
+            .filter(
+                pk=delivery.delegation_id,
+                grantor__election=election,
+                delegate=voter,
+                state=Delegation.State.APPROVED,
+            )
+            .first()
+        )
+        if delegation is None or not election.allow_delegations:
+            _skip(delivery, DeliveryReason.INVALID_DELEGATION, now)
+            return None
+        represented = delegation.grantor
+        link = proxy_access.link(delegation, voter.credential)
+    else:
+        link = active_link(voter)
     if not link:
         _skip(delivery, DeliveryReason.INVALID_CREDENTIAL, now)
         return None
@@ -87,7 +108,7 @@ def _claim(delivery_id, election_id):
         delivery.smtp_message_id,
         voter.email,
         delivery.campaign.subject,
-        render_body(delivery.campaign, voter, link),
+        render_body(delivery.campaign, voter, link, represented=represented),
     )
 
 

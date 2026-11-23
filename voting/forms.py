@@ -1,10 +1,13 @@
 import unicodedata
 from datetime import datetime
+from io import BytesIO
+from pathlib import PurePath
 from typing import ClassVar
 
 from django import forms
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from PIL import Image, UnidentifiedImageError
 
 from members.importing import PHONE_FORMAT, cell_text
 
@@ -205,6 +208,39 @@ class DocumentForm(forms.Form):
         return ElectionDocument.objects.create(
             election=election, name=file.name[:150], content=file.read()
         )
+
+
+class ReceivedDelegationForm(forms.Form):
+    first_name = forms.CharField(label="Nome del delegante", max_length=100)
+    last_name = forms.CharField(label="Cognome del delegante", max_length=100)
+    external_id = forms.CharField(label="Matricola del delegante", max_length=64)
+    file = forms.FileField(
+        label="Domanda compilata (PDF o JPG, massimo 3 MB)",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.jpg,.jpeg"}),
+    )
+
+    def clean_file(self):
+        upload = self.cleaned_data["file"]
+        if upload.size > 3 * 1024 * 1024:
+            raise ValidationError("Il documento supera il limite di 3 MB.")
+        content = upload.read()
+        extension = PurePath(upload.name).suffix.lower()
+        if extension == ".pdf" and content.startswith(b"%PDF-"):
+            return upload.name[:150], "application/pdf", content
+        if extension in {".jpg", ".jpeg"}:
+            try:
+                with Image.open(BytesIO(content), formats=["JPEG"]) as image:
+                    if image.width * image.height <= 25_000_000:
+                        image.verify()
+                        return upload.name[:150], "image/jpeg", content
+            except (
+                UnidentifiedImageError,
+                Image.DecompressionBombError,
+                OSError,
+                ValueError,
+            ):
+                pass
+        raise ValidationError("Allega un file PDF o JPG valido.")
 
 
 class ContactForm(forms.Form):

@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from . import assembly_report, reports, services
+from . import assembly_report, proxy_access, reports, services
 from .access import administrator
 from .forms import (
     AssemblyQuorumForm,
@@ -617,6 +617,22 @@ def access(request):
             {"error": "Troppi tentativi. Riprova fra un minuto."}, status=429
         )
     token = request.POST.get("token", "")
+    if token.startswith(proxy_access.TOKEN_PREFIX):
+        binding = proxy_access.decode(token)
+        delegation = proxy_access.approved_delegation(binding)
+        if delegation is None or not services.is_open(delegation.grantor.election):
+            return JsonResponse(
+                {"error": "Il link per questa delega non è valido o è scaduto."},
+                status=404,
+            )
+        request.session.flush()
+        request.session[proxy_access.SESSION_KEY] = binding
+        return JsonResponse(
+            {
+                "ok": True,
+                "ballot_url": reverse("voting:proxy_ballot", args=[delegation.pk]),
+            }
+        )
     if re.fullmatch(r"[A-Za-z0-9_-]{43}", token) is None:
         return JsonResponse({"error": "Il link personale non è valido."}, status=404)
     credential = (
@@ -677,6 +693,7 @@ def ballot_page(
             "election": voter.election,
             "voter": voter,
             "delegation": delegation,
+            "scoped_link": proxy_access.SESSION_KEY in request.session,
             "delegated_out": delegation is None
             and Delegation.objects.filter(
                 grantor=voter,
@@ -705,6 +722,12 @@ def ballot(request):
 
 @require_http_methods(["GET", "POST"])
 def proxy_ballot(request, delegation_pk):
+    scoped = request.session.get(proxy_access.SESSION_KEY)
+    if scoped is not None:
+        delegation = proxy_access.approved_delegation(scoped)
+        if delegation is None or delegation.pk != delegation_pk:
+            raise Http404
+        return voter_ballot(request, delegation.grantor, delegation)
     actor = voter_context(request)
     if actor is None:
         return ballot_page(request, None)
@@ -774,7 +797,10 @@ def voter_ballot(request, voter, delegation=None):
             status=400,
             delegation=delegation,
         )
-    data = [request.session[SESSION_KEY], str(uuid4()), revision, answers]
+    binding = (
+        request.session.get(SESSION_KEY) or request.session[proxy_access.SESSION_KEY]
+    )
+    data = [binding, str(uuid4()), revision, answers]
     if delegation:
         data.append(delegation.pk)
     payload = signing.dumps(data, salt=SUBMISSION_SALT)
@@ -808,18 +834,32 @@ def voter_ballot(request, voter, delegation=None):
 
 @require_POST
 def submit(request):
-    voter = voter_context(request)
-    if voter is None:
-        return ballot_page(request, None)
+    scoped = request.session.get(proxy_access.SESSION_KEY)
+    if scoped is None:
+        voter = voter_context(request)
+        if voter is None:
+            return ballot_page(request, None)
+    else:
+        delegation = proxy_access.approved_delegation(scoped)
+        if delegation is None:
+            return render(
+                request,
+                "voting/unavailable.html",
+                {"error": "La delega non è più valida."},
+                status=409,
+            )
+        voter = delegation.grantor
     try:
         session_data, request_id, revision, answers, *proxy = signing.loads(
             request.POST.get("payload", ""),
             salt=SUBMISSION_SALT,
         )
-        if session_data != request.session[SESSION_KEY]:
+        if session_data != (scoped or request.session[SESSION_KEY]) or (
+            scoped is not None and proxy != [scoped[3]]
+        ):
             raise signing.BadSignature
         receipt, current = services.record_ballot(
-            *session_data,
+            *session_data[:3],
             request_id,
             revision,
             answers,
@@ -850,6 +890,9 @@ def submit(request):
             "receipt": receipt,
             "current": current,
             "proxy": bool(proxy),
+            "return_url": reverse("voting:proxy_ballot", args=[scoped[3]])
+            if scoped is not None
+            else reverse("voting:assembly" if proxy else "voting:ballot"),
         },
     )
 
@@ -857,6 +900,12 @@ def submit(request):
 @require_GET
 def voter_document(request, pk):
     voter = voter_context(request)
+    if voter is None:
+        delegation = proxy_access.approved_delegation(
+            request.session.get(proxy_access.SESSION_KEY)
+        )
+        if delegation is not None:
+            voter = delegation.grantor
     if not voter or not services.is_open(voter.election):
         raise Http404
     return document_response(

@@ -10,6 +10,7 @@ class MailKind(models.TextChoices):
     INVITE = "invite", "Inviti"
     REMINDER = "reminder", "Solleciti ai non votanti"
     RESEND = "resend", "Reinvio individuale"
+    PROXY = "proxy", "Link di voto per delega"
 
 
 class CampaignState(models.TextChoices):
@@ -44,6 +45,10 @@ class DeliveryReason(models.TextChoices):
     PERMANENT = "smtp_permanent", "Errore permanente SMTP"
     UNKNOWN = "smtp_unknown", "Riscontro SMTP assente o ambiguo"
     INTERRUPTED = "interrupted", "Tentativo interrotto con esito sconosciuto"
+    INVALID_DELEGATION = (
+        "invalid_delegation",
+        "Delega assente, revocata o non approvata",
+    )
 
 
 class ReminderCampaign(models.Model):
@@ -76,6 +81,13 @@ class EmailDelivery(models.Model):
     voter = models.ForeignKey(
         "voting.ElectionVoter", on_delete=models.CASCADE, related_name="deliveries"
     )
+    delegation = models.OneToOneField(
+        "voting.Delegation",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="notice",
+    )
     kind = models.CharField(max_length=8, choices=MailKind.choices)
     state = models.CharField(max_length=9, choices=DeliveryState.choices)
     reason = models.CharField(max_length=24, choices=DeliveryReason.choices, blank=True)
@@ -95,8 +107,14 @@ class EmailDelivery(models.Model):
             ),
             models.UniqueConstraint(
                 fields=("voter", "kind"),
-                condition=Q(state__in=(DeliveryState.QUEUED, DeliveryState.SENDING)),
+                condition=Q(state__in=(DeliveryState.QUEUED, DeliveryState.SENDING))
+                & Q(delegation__isnull=True),
                 name="mailings_one_pending_per_kind",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind=MailKind.PROXY, delegation__isnull=False)
+                | (~Q(kind=MailKind.PROXY) & Q(delegation__isnull=True)),
+                name="mailings_proxy_requires_delegation",
             ),
         )
         indexes = (

@@ -1,14 +1,18 @@
+from io import BytesIO
+
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.http import Http404
+from django.db.models import Exists, OuterRef, Q
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import assembly, reports, services
 from .access import administrator
-from .models import Delegation, Election, VoterPresence
+from .forms import ReceivedDelegationForm
+from .models import Delegation, DelegationAttachment, Election, VoterPresence
 from .views import SESSION_KEY, voter_context
 
 
@@ -79,7 +83,11 @@ def voter_assembly(request):
             "active": active,
             "last_request": voter.delegations_given.select_related("delegate").first(),
             "received": voter.delegations_received.filter(
-                state=Delegation.State.APPROVED
+                state=Delegation.State.APPROVED,
+                attachment__isnull=True,
+            ).select_related("grantor"),
+            "documented": voter.delegations_received.filter(
+                attachment__isnull=False,
             ).select_related("grantor"),
         },
     )
@@ -89,7 +97,13 @@ def voter_assembly(request):
 @transaction.atomic
 def voter_revoke(request, delegation_pk):
     election, voter = lock_voter(request)
-    delegation = get_object_or_404(voter.delegations_given, pk=delegation_pk)
+    allowed = Delegation.objects.filter(
+        Q(grantor=voter)
+        | Q(delegate=voter, attachment__isnull=False, state=Delegation.State.PENDING),
+        grantor__election=election,
+        delegate__election=election,
+    )
+    delegation = get_object_or_404(allowed, pk=delegation_pk)
     try:
         assembly.decide_delegation(election, delegation, "revoke")
         messages.success(request, "Delega revocata.")
@@ -98,13 +112,61 @@ def voter_revoke(request, delegation_pk):
     return redirect("voting:assembly")
 
 
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def submit_received_delegation(request):
+    if request.method == "POST":
+        election, voter = lock_voter(request)
+    else:
+        voter = voter_context(request)
+        if voter is None:
+            return redirect("voting:ballot")
+        election = voter.election
+    if not election.allow_delegations or not services.is_open(election):
+        raise Http404
+    form = ReceivedDelegationForm(
+        request.POST if request.method == "POST" else None,
+        request.FILES or None,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            if not services.admit_request(
+                "delega-documentale", voter.pk, limit=8, seconds=60
+            ):
+                raise ValidationError("Troppi tentativi. Riprova fra un minuto.")
+            assembly.request_received_delegation(election, voter, form.cleaned_data)
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(request, "Richiesta con allegato presentata allo staff.")
+            return redirect("voting:assembly")
+    return render(
+        request,
+        "voting/received_delegation.html",
+        {
+            "election": election,
+            "form": form,
+            "reserved": assembly.reserved_slots(election, voter.pk).count(),
+            "limit": assembly.delegation_limit(election.voters.count()),
+        },
+    )
+
+
 @administrator
 @require_GET
 def manage_assembly(request, pk):
     election = get_object_or_404(Election, pk=pk, opened_at__isnull=False)
-    delegations = Delegation.objects.filter(
-        grantor__election=election, delegate__election=election
-    ).select_related("grantor", "delegate")
+    delegations = (
+        Delegation.objects.filter(
+            grantor__election=election, delegate__election=election
+        )
+        .select_related("grantor", "delegate", "notice")
+        .annotate(
+            has_attachment=Exists(
+                DelegationAttachment.objects.filter(delegation_id=OuterRef("pk"))
+            )
+        )
+    )
     return render(
         request,
         "voting/assembly_admin.html",
@@ -125,6 +187,30 @@ def manage_assembly(request, pk):
 def presence_csv(request, pk):
     election = get_object_or_404(Election, pk=pk, opened_at__isnull=False)
     return reports.presences_csv(election)
+
+
+@administrator
+@require_GET
+def download_delegation_attachment(request, pk, delegation_pk):
+    attachment = get_object_or_404(
+        DelegationAttachment.objects.select_related("delegation__grantor"),
+        delegation_id=delegation_pk,
+        delegation__grantor__election_id=pk,
+        delegation__delegate__election_id=pk,
+    )
+    services.audit(
+        "allegato_delega_scaricato",
+        actor=request.user,
+        election=attachment.delegation.grantor.election,
+        voter=attachment.delegation.grantor,
+        details={"delega": delegation_pk},
+    )
+    return FileResponse(
+        BytesIO(bytes(attachment.content)),
+        content_type=attachment.mime_type,
+        as_attachment=True,
+        filename=attachment.filename,
+    )
 
 
 @administrator

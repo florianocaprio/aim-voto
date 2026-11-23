@@ -46,9 +46,13 @@ Il link è una credenziale personale. Chi è autorizzato a copiarlo può tecnica
 
 1. Nella bozza, seleziona **Consenti il voto per delega verificata dallo staff** se la consultazione prevede deleghe. La regola resta fissata all’apertura. Le consultazioni esistenti mantengono le deleghe disabilitate.
 2. Dal link personale, il socio apre **Presenza e deleghe** e sceglie **Confermo la mia presenza**. L’accesso alla scheda, la conferma della presenza e l’acquisizione del voto sono tre azioni distinte. Per una consultazione aperta o già conclusa, lo staff trova l’elenco e **Scarica presenze CSV** nella sezione **Presenze e deleghe**.
-3. Il socio che delega inserisce l’**ID socio** di un altro avente diritto della stessa consultazione e preme **Presenta la delega per la verifica**. Può presentare una sola richiesta attiva. Lo staff verifica le identità, seleziona **Approva** oppure **Rifiuta** e controlla l’esito.
-4. La platea congelata all’apertura determina il massimo di deleghe approvate per ciascun delegato. Fino a 500 aventi diritto inclusi il massimo è 3. Da 501 in poi il massimo è 5. Il voto personale del delegato conta separatamente.
+3. Il socio che delega può ancora inoltrare la richiesta indicando l’**ID socio** di un altro avente diritto. In alternativa, chi ha ricevuto la delega apre **Presenta una delega ricevuta**, inserisce nome, cognome e matricola del delegante e carica la domanda compilata in PDF o JPG, massimo 3 MB. Per ciascun delegante può esserci una sola richiesta attiva fra i due percorsi.
+4. La platea congelata all’apertura determina il limite per ciascun delegato. Fino a 500 aventi diritto inclusi il massimo è 3. Da 501 in poi il massimo è 5. Le richieste del delegato in verifica e le deleghe approvate da entrambi i percorsi occupano lo stesso limite. Il delegato può ritirare una propria richiesta con allegato finché è in verifica.
 5. Il delegato apre la propria sessione con il suo link personale e seleziona **Apri scheda in delega**. La scheda indica il rappresentato prima della conferma. La stessa posizione accetta una sola scheda valida. Una delega può essere revocata prima che il delegato acquisisca la prima scheda per quella posizione. Fino all’approvazione il delegante può votare direttamente.
+
+Per le richieste presentate dal delegato, lo staff trova **Scarica allegato** nella sezione **Presenze e deleghe**. Esamina il documento e verifica che corrisponda alla persona e alla consultazione prima di premere **Approva**. L’approvazione accoda un’email al delegato con un link dedicato a quella scheda. La tabella indica l’esito dell’invio. L’allegato è riservato allo staff e resta fuori da email e rapporti.
+
+In sviluppo, controlla la notifica in Mailpit. Il link per una delega apre una sessione per la singola scheda rappresentata. Per tornare alla tua scheda e alla gestione delle deleghe, riapri l’invito personale originale. Una revoca o la rigenerazione del link personale del delegato rende inutilizzabile il link specifico già inviato.
 
 ## Inviare un sollecito ai non votanti
 

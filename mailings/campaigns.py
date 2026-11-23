@@ -78,7 +78,7 @@ def exclusion(election, kind, voter, now):
         return DeliveryReason.INVALID_EMAIL
     if getattr(voter, "credential", None) is None:
         return DeliveryReason.INVALID_CREDENTIAL
-    if voter.delivery_pending:
+    if kind != MailKind.PROXY and voter.delivery_pending:
         return DeliveryReason.PENDING
     if voter.last_delivery is not None:
         if kind == MailKind.INVITE:
@@ -109,18 +109,52 @@ def active_link(voter):
         return None
 
 
-def render_body(campaign, voter, url):
+def render_body(campaign, voter, url, *, represented=None):
     deadline = timezone.localtime(campaign.election.closes_at, ROME).strftime(
         "%d/%m/%Y alle %H:%M %Z"
     )
+    if represented is not None:
+        instructions = (
+            f"Scheda per: {represented.first_name} {represented.last_name}\n"
+            f"Il tuo link per questa delega: {url}\n"
+            "Il link apre solo questa scheda di voto palese. Conserva il link e non inoltrarlo.\n"
+        )
+    else:
+        instructions = (
+            f"Il tuo link personale: {url}\n\n"
+            "Il voto è palese e associato al tuo nominativo. Conserva il link e non inoltrarlo.\n"
+        )
+        if campaign.election.allow_delegations:
+            instructions += (
+                "Dal link personale puoi aprire Presenza e deleghe. Lì puoi presentare una delega "
+                "ricevuta allegando la domanda compilata in PDF o JPG.\n"
+            )
     return (
         f"Ciao {voter.first_name} {voter.last_name},\n\n"
         f"{campaign.body}\n\n"
         f"Consultazione: {campaign.election.title}\n"
         f"Scadenza: {deadline} (Europe/Rome)\n"
-        f"Il tuo link personale: {url}\n\n"
-        "Il voto è palese e associato al tuo nominativo. Conserva il link e non inoltrarlo.\n"
+        f"{instructions}"
         f"Assistenza Angeli in Moto ODV: {settings.SUPPORT_EMAIL}\n"
+    )
+
+
+def enqueue_proxy_notice(election, delegation, actor):
+    campaign = ReminderCampaign.objects.create(
+        election=election,
+        author=actor,
+        kind=MailKind.PROXY,
+        subject="Link di voto per delega AIM Voto",
+        body="La tua richiesta di delega è stata approvata.",
+        state=CampaignState.CONFIRMED,
+        confirmed_at=timezone.now(),
+    )
+    EmailDelivery.objects.create(
+        campaign=campaign,
+        voter=delegation.delegate,
+        delegation=delegation,
+        kind=MailKind.PROXY,
+        state=DeliveryState.QUEUED,
     )
 
 
