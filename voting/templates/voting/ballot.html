@@ -15,7 +15,7 @@
     <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
   {% endif %}
   {% if voter and not scoped_link and election.allow_delegations %}
-    <div><a class="button secondary" href="{% url 'voting:assembly' %}">Presenza e deleghe</a></div>
+    <div><a class="button {% if received_delegations and not presence_gate %}delegation-highlight{% else %}secondary{% endif %}" href="{% url 'voting:assembly' %}">Deleghe{% if received_delegations %} ({{ received_delegations }}){% endif %}</a></div>
   {% endif %}
   {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata. Matricola {{ voter.external_id }}.</p>{% endif %}
   {% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}

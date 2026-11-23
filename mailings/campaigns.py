@@ -146,7 +146,7 @@ def render_body(campaign, voter, url, *, represented=None):
         )
         if campaign.election.allow_delegations:
             instructions += (
-                "Dal link personale puoi aprire Presenza e deleghe. Lì puoi presentare una delega "
+                "Dal link personale puoi aprire Deleghe. Lì puoi presentare una delega "
                 "ricevuta allegando la domanda compilata in PDF o JPG.\n"
             )
         if campaign.election.require_presence:

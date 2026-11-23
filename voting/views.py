@@ -708,42 +708,51 @@ def ballot_page(
 ):
     if voter is None:
         return render(request, "voting/unavailable.html", status=403)
-    if not services.is_open(voter.election):
-        return render(request, "voting/unavailable.html", {"election": voter.election})
+    election = voter.election
+    if not services.is_open(election):
+        return render(request, "voting/unavailable.html", {"election": election})
     if answers is None:
         answers = (
             ballot_record.answers
             if ballot_record
             and editing
-            and voter.election.allow_replacement
-            and not voter.election.is_secret
+            and election.allow_replacement
+            and not election.is_secret
             else {}
         )
+    actor_id = delegation.delegate_id if delegation else voter.pk
+    scoped_link = proxy_access.SESSION_KEY in request.session
+    received_delegations = 0
+    if election.allow_delegations and not scoped_link:
+        received_delegations = Delegation.objects.filter(
+            delegate_id=actor_id,
+            grantor__election=election,
+            state=Delegation.State.APPROVED,
+        ).count()
     return render(
         request,
         "voting/ballot.html",
         {
-            "election": voter.election,
+            "election": election,
             "voter": voter,
             "delegation": delegation,
-            "scoped_link": proxy_access.SESSION_KEY in request.session,
-            "presence_gate": voter.election.require_presence
-            and not services.has_confirmed_presence(
-                delegation.delegate_id if delegation else voter.pk
-            ),
+            "scoped_link": scoped_link,
+            "received_delegations": received_delegations,
+            "presence_gate": election.require_presence
+            and not services.has_confirmed_presence(actor_id),
             "delegated_out": delegation is None
             and Delegation.objects.filter(
                 grantor=voter,
                 state=Delegation.State.APPROVED,
             ).exists(),
             "record": ballot_record,
-            "turnout": reports.turnout(voter.election) if ballot_record else None,
+            "turnout": reports.turnout(election) if ballot_record else None,
             "editing": editing,
             "questions": [
                 (question, set(answers.get(str(question.pk), [])))
-                for question in services.ballot_questions(voter.election)
+                for question in services.ballot_questions(election)
             ],
-            "documents": voter.election.documents.defer("content"),
+            "documents": election.documents.defer("content"),
             "error": error,
         },
         status=status,

@@ -77,6 +77,45 @@ class DocumentedDelegationTests(TestCase):
         self.assertEqual(item.state, Delegation.State.APPROVED)
         return item
 
+    def test_delegation_button_counts_approved_requests_and_highlights_when_ready(self):
+        self.grantors[0].delegations_given.create(
+            delegate=self.delegate,
+            state=Delegation.State.APPROVED,
+            requested_at=timezone.now(),
+        )
+        documented = self.approved_request(self.grantors[1])
+        self.assertEqual(self.request(self.grantors[2]).status_code, 302)
+        ballot = reverse("voting:ballot")
+        delegations = reverse("voting:assembly")
+        highlighted = f'<a class="button delegation-highlight" href="{delegations}">Deleghe (2)</a>'
+        self.assertContains(self.client.get(ballot), highlighted, html=True)
+
+        self.election.require_presence = True
+        self.election.save(update_fields=["require_presence"])
+        before = self.client.get(ballot)
+        self.assertContains(before, "Deleghe (2)")
+        self.assertNotContains(before, "delegation-highlight")
+        self.assertRedirects(
+            self.client.post(ballot, {"action": "confirm_presence"}), ballot
+        )
+        self.assertContains(self.client.get(ballot), highlighted, html=True)
+        page = self.client.get(delegations)
+        self.assertContains(page, "<h1>Deleghe</h1>", html=True)
+        self.assertNotContains(page, "Confermo la mia presenza")
+        self.assertContains(page, "Apri scheda in delega", count=2)
+
+        proxy_ballot = reverse("voting:proxy_ballot", args=[documented.pk])
+        self.assertContains(self.client.get(proxy_ballot), highlighted, html=True)
+        scoped = Client()
+        token = urlsplit(
+            proxy_access.link(documented, self.delegate.credential)
+        ).fragment
+        scoped.post(reverse("voting:access"), {"token": token})
+        self.assertNotContains(scoped.get(proxy_ballot), f'href="{delegations}"')
+
+        self.decision(documented, "revoke")
+        self.assertContains(self.client.get(ballot), "Deleghe (1)")
+
     def test_attachment_is_validated_and_visible_only_to_staff_for_its_consultation(
         self,
     ):

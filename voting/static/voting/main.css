@@ -59,6 +59,7 @@ small, .helptext { display: block; font-size: .875rem; margin-top: .2rem; }
 .button:hover, button:not([class]):hover { filter: brightness(.91); }
 .button.secondary { background: var(--surface); color: var(--teal); border-color: #839f9d; }
 .button.danger { background: var(--surface); color: var(--danger); border-color: #ad837f; }
+.button.delegation-highlight { background: var(--danger); border-color: var(--danger); box-shadow: 0 0 0 .18rem #f3d6d2; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: .66; }

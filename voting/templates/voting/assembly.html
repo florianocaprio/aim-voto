@@ -1,20 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Presenza e deleghe{% endblock %}
+{% block title %}Deleghe{% endblock %}
 {% block content %}
 <a class="back" href="{% url 'voting:ballot' %}">Torna alla tua scheda</a>
-<div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>{% if election.allow_delegations %}Presenza e deleghe{% else %}Presenza{% endif %}</h1></div></div>
+<div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>Deleghe</h1></div></div>
 <div class="stack narrow">
-  <section class="card stack">
-    <h2>Presenza di {{ voter.first_name }} {{ voter.last_name }}</h2>
-    {% if presence %}
-      <p>Presenza registrata il {{ presence.confirmed_at|date:"d/m/Y H:i T" }} · {{ presence.get_source_display }}</p>
-    {% elif is_open %}
-      <p>Conferma la tua presenza con un’azione distinta dal voto.</p>
-      <form method="post">{% csrf_token %}<button class="button secondary" name="action" value="presence">Confermo la mia presenza</button></form>
-    {% else %}
-      <p>La consultazione è chiusa. Le conferme di presenza sono terminate.</p>
-    {% endif %}
-  </section>
   {% if election.allow_delegations %}
   <section class="card stack">
     <h2>La tua delega</h2>
@@ -59,6 +48,8 @@
     {% endfor %}
   </section>
   {% endif %}
+  {% else %}
+    <p>Le deleghe non sono previste per questa consultazione.</p>
   {% endif %}
 </div>
 {% endblock %}

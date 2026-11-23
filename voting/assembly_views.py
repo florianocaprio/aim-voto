@@ -161,24 +161,23 @@ def voter_assembly(request):
         .select_related("delegate")
         .first()
     )
+    incoming = voter.delegations_received.filter(
+        grantor__election=election
+    ).select_related("grantor")
     return render(
         request,
         "voting/assembly.html",
         {
-            "voter": voter,
             "election": election,
             "is_open": services.is_open(election),
-            "presence": VoterPresence.objects.filter(voter=voter).first(),
             "has_voted": election.participation_records().filter(voter=voter).exists(),
             "active": active,
             "last_request": voter.delegations_given.select_related("delegate").first(),
-            "received": voter.delegations_received.filter(
+            "received": incoming.filter(
                 state=Delegation.State.APPROVED,
                 attachment__isnull=True,
-            ).select_related("grantor"),
-            "documented": voter.delegations_received.filter(
-                attachment__isnull=False,
-            ).select_related("grantor"),
+            ),
+            "documented": incoming.filter(attachment__isnull=False),
         },
     )
 
