@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ voter.first_name }} {{ voter.last_name }}{% endblock %}
 {% block content %}
-<a class="back" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
+<a class="back" href="{% url 'voting:voters' election.pk %}">{% if election.status == "draft" %}Aventi diritto{% else %}Elettori della votazione{% endif %}</a>
 <div class="page-heading">
   <div>
     <p class="mode">{{ election.title }} · {{ election.get_status_display }}</p>
     <h1>{{ voter.first_name }} {{ voter.last_name }}</h1>
-    <p class="muted">{{ voter.external_id }} · {{ voter.section }}</p>
+    <p class="muted">Matricola {{ voter.external_id }}{% if voter.section %} · {{ voter.section }}{% endif %}</p>
   </div>
 </div>
 <div class="sections">
@@ -52,7 +52,14 @@
       <dd>{% if last_invite %}{{ last_invite.get_state_display }}{% if last_invite.reason %} · {{ last_invite.get_reason_display }}{% endif %}{% else %}Nessun invio{% endif %}</dd>
       <dt>Partecipazione</dt><dd>{% if has_voted %}Ha votato{% else %}Non ha ancora votato{% endif %}</dd>
     </dl>
-    {% if is_open or election.status == "draft" or election.status == "scheduled" %}
+    {% if election.status == "draft" %}
+      <div><a class="button secondary" href="{% url 'voting:voter_edit' election.pk voter.pk %}">Modifica elettore</a></div>
+      <form method="post" action="{% url 'voting:voter_remove' election.pk voter.pk %}" class="actions">
+        {% csrf_token %}
+        <label><input type="checkbox" name="confirm" value="yes" required> Confermo la rimozione dalla platea</label>
+        <button class="button danger">Rimuovi elettore</button>
+      </form>
+    {% elif is_open or election.status == "scheduled" %}
       <div><a class="button secondary" href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a></div>
     {% endif %}
   </section>

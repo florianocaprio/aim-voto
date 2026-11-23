@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Associa le colonne · AIM Voto{% endblock %}
 {% block content %}
+<a class="back" href="{% url 'voting:voters' election.pk %}">Aventi diritto · {{ election.title }}</a>
 <header class="page-heading">
     <h1>Associa le colonne</h1>
     <p>Il file contiene {{ row_count }} righe dati. Verifica la corrispondenza dei campi prima dell’anteprima.</p>
@@ -10,7 +11,7 @@
     {{ form.as_div }}
     <div class="actions">
         <button class="button" type="submit">Controlla l’anteprima</button>
-        <a class="button secondary" href="{% url 'members:import' %}">Carica un altro file</a>
+        <a class="button secondary" href="{% url 'members:import' election.pk %}">Carica un altro file</a>
     </div>
 </form>
 {% endblock %}

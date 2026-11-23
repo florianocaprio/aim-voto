@@ -21,6 +21,7 @@ from voting.models import (
 from .support import (
     add_members,
     election_with_motion,
+    electorate_snapshot,
     open_election,
     redeem,
     review,
@@ -55,7 +56,7 @@ class VotingViewsTests(TestCase):
             ElectionVoter.objects.create(
                 election=self.election,
                 member=self.voter.member,
-                **services.electorate_snapshot(self.voter.member),
+                **electorate_snapshot(self.voter.member),
             )
 
     def test_whole_ballot_replacement_and_retries(self):

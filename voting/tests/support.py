@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from members.models import Member
 from voting import services
-from voting.models import Choice, Election, Question
+from voting.models import Choice, Election, ElectionVoter, Question
 
 
 def staff():
@@ -43,9 +43,28 @@ def add_members(count=1):
     ]
 
 
+def electorate_snapshot(member):
+    return {
+        field: getattr(member, field)
+        for field in (
+            "external_id",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "section",
+        )
+    }
+
+
 def open_election(election, members):
     with transaction.atomic():
-        services.set_electorate(election, members)
+        ElectionVoter.objects.bulk_create(
+            ElectionVoter(
+                election=election, member=member, **electorate_snapshot(member)
+            )
+            for member in members
+        )
         services.open_locked(services.lock_election(election.pk))
     election.refresh_from_db()
     return list(election.voters.all())

@@ -4,15 +4,17 @@ L’ambiente locale di AIM Voto è destinato a prove con soci sintetici. Le emai
 
 Con un account nazionale puoi preparare consultazioni per qualsiasi sezione dell’associazione. Verifica titolo, platea e scadenza prima di confermare ogni apertura o campagna.
 
-## Importare l’anagrafica
+## Preparare la platea degli aventi diritto
 
-1. Apri **Soci**. Scarica il modello CSV o XLSX. Per la dimostrazione puoi scaricare il **CSV con tre soci dimostrativi**.
+Nella bozza apri **Aventi diritto**. Con **Aggiungi elettore** inserisci nome, cognome, matricola ed email. Cellulare e sezione sono facoltativi. In bozza puoi modificare o rimuovere una posizione dal relativo dettaglio.
+
+1. Apri **Importa CSV** nella platea. Scarica il modello CSV o XLSX. Per la dimostrazione puoi scaricare il **CSV con tre elettori dimostrativi**.
 2. Carica il file. Per il CSV scegli separatore e codifica. Sono disponibili punto e virgola, virgola e tabulazione, con UTF-8 anche con BOM, Windows-1252 o ISO-8859-1. Indica se la prima riga contiene le intestazioni.
-3. Seleziona **Associa le colonne**. Associa ID socio, nome, cognome, email e sezione. Il cellulare è facoltativo. Nel modello XLSX i campi associati vanno memorizzati come testo, in particolare per conservare gli zeri iniziali. Viene letto il primo foglio.
+3. Seleziona **Associa le colonne**. Associa matricola, nome, cognome ed email. Cellulare e sezione sono facoltativi. Nel modello XLSX i campi associati vanno memorizzati come testo, in particolare per conservare gli zeri iniziali. Viene letto il primo foglio.
 4. Seleziona **Controlla l’anteprima**. Esamina nuovi soci, aggiornamenti, righe invariate, errori e avvisi. Correggi eventuali righe con errore e ricarica il file, oppure verifica l’associazione delle colonne.
 5. Quando il riepilogo è corretto, seleziona la casella di verifica e premi **Conferma importazione**. Se i dati rilevanti cambiano prima del salvataggio, il sistema presenta una nuova anteprima da confermare.
 
-Il file può contenere al massimo 5.000 righe dati e 32 colonne e deve rientrare in 2 MiB. Per l’ID socio contano le maiuscole e minuscole dopo la rimozione degli spazi ai bordi e la normalizzazione Unicode. Un ID ripetuto nella stessa importazione richiede una correzione. Un’email condivisa genera un avviso e mantiene distinti i soci. Se la colonna del cellulare resta senza associazione, il valore esistente viene conservato. Una cella vuota in una colonna del cellulare associata cancella il valore precedente.
+Il file può contenere al massimo 5.000 righe dati e 32 colonne e deve rientrare in 2 MiB. La platea può contenere fino a 2.000 elettori. Per la matricola contano le maiuscole, le minuscole e gli zeri iniziali. Una matricola ripetuta nel file richiede una correzione. Una matricola già presente aggiorna la posizione di quella bozza e le posizioni assenti dal file restano nella platea. Un’email condivisa genera un avviso. Se una colonna facoltativa resta senza associazione, il valore esistente viene conservato. Una cella vuota in una colonna associata cancella il valore precedente.
 
 L’anteprima è accessibile dal solo operatore che ha caricato il file e scade dopo 30 minuti. Il successivo caricamento elimina le anteprime scadute. Il comando `docker compose exec web python manage.py purge_imports` consente la pulizia anche senza avviare un’altra importazione.
 
@@ -20,20 +22,22 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 
 1. In **Consultazioni** scegli **Nuova consultazione**. Imposta titolo, descrizione e scadenza in ora di Roma. Indica l’ora di apertura se vuoi programmarla. Scegli se consentire la sostituzione della scheda, attiva inizialmente.
 2. Da **Aggiungi quesito** inserisci una mozione, una scelta singola, una scelta multipla o una selezione di candidati. Per le selezioni multiple stabilisci il numero massimo di preferenze. **Gestisci documenti** accetta fino a cinque PDF da 3 MiB ciascuno.
-3. Apri **Componi la platea**. Indica una sezione, incolla gli ID dei singoli soci o combina i due criteri. Lascia entrambi i campi vuoti per selezionare tutta l’anagrafica. Verifica la platea quando salvi, soprattutto se hai aggiornato i recapiti nell’anagrafica.
+3. Apri **Aventi diritto** e inserisci la platea di questa consultazione, a mano o con un file. Controlla l’elenco prima di aprire o programmare la votazione.
 4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri ora** oppure **Programma l’apertura** e conferma l’operazione. Dallo stato programmato puoi tornare in bozza per fare modifiche. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale.
 5. Durante l’apertura, seleziona **Prepara inviti email**. Scegli la sezione o l’intera platea, personalizza oggetto e testo, verifica i destinatari e conferma l’accodamento.
 
 Il voto è palese. All’apertura si congelano quesiti, opzioni, regole e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 
+Per consultare lo storico apri la votazione conclusa da **Consultazioni** e scegli **Elettori della votazione**. La stessa matricola può riportare un recapito diverso in un’altra consultazione.
+
 ## Assistere un elettore
 
-In **Elettori della votazione**, cerca per nome, ID socio, email o cellulare e apri il nome del socio. Puoi aprire la stessa scheda dal nome di un destinatario nello **Storico invii**. La scheda mostra i recapiti, l’ultimo invito o reinvio e la partecipazione.
+In **Elettori della votazione**, cerca per nome, matricola, email o cellulare e apri il nome del socio. Puoi aprire la stessa scheda dal nome di un destinatario nello **Storico invii**. La scheda mostra i recapiti, l’ultimo invito o reinvio e la partecipazione.
 
 - **Copia link personale** recupera durante l’apertura il collegamento attivo usato dalla coda di invio. Se il browser blocca la copia automatica, copia il valore dal campo selezionato.
 - **Copia messaggio e apri WhatsApp Web** usa la sessione WhatsApp del browser e il cellulare della scheda elettore. Inserisci i numeri esteri con il prefisso internazionale; il sistema aggiunge `+39` ai cellulari italiani senza prefisso. Il messaggio rimane negli appunti. Incollalo nella chat, verifica il destinatario e premi **Invia**. Se il browser blocca l’apertura automatica, usa **Apri chat WhatsApp Web**. I link di un’installazione su `localhost` si aprono solo sul computer che la esegue.
 - **Reinvia email** apre un’anteprima per il singolo socio. Verifica destinatario e testo prima di confermare. Il reinvio individuale segue la coda email e mantiene la stessa credenziale attiva.
-- **Correggi recapiti** separa la modifica della posizione elettorale dall’anagrafica generale. Verifica il nuovo recapito, seleziona la motivazione e salva. L’operazione è registrata e conserva persona e diritto di voto.
+- **Correggi recapiti** aggiorna solo l’email o il cellulare della posizione nella consultazione corrente. Verifica il nuovo recapito, seleziona la motivazione e salva. L’operazione è registrata e conserva persona e diritto di voto.
 - **Revoca e rigenera link** richiede motivazione e conferma. Il nuovo link sostituisce il precedente e invalida le sessioni collegate alla versione precedente per nuovi invii. Una scheda già acquisita rimane corrente. Copia il nuovo link o usa il reinvio individuale dopo aver verificato il recapito.
 
 Il link è una credenziale personale. Chi è autorizzato a copiarlo può tecnicamente usarlo per accedere come il socio. Copie, revoche e correzioni sono operazioni tracciate. [Modello di fiducia](security-and-trust-model.md).

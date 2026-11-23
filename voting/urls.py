@@ -57,10 +57,21 @@ urlpatterns = [
         name="transition",
     ),
     path("gestione/<int:pk>/elettori/", views.voters, name="voters"),
+    path("gestione/<int:pk>/elettori/nuovo/", views.voter_edit, name="voter_add"),
     path(
         "gestione/<int:pk>/elettori/<int:voter_pk>/",
         views.voter_detail,
         name="voter_detail",
+    ),
+    path(
+        "gestione/<int:pk>/elettori/<int:voter_pk>/modifica/",
+        views.voter_edit,
+        name="voter_edit",
+    ),
+    path(
+        "gestione/<int:pk>/elettori/<int:voter_pk>/rimuovi/",
+        views.voter_remove,
+        name="voter_remove",
     ),
     path(
         "gestione/<int:pk>/elettori/<int:voter_pk>/link/", views.link, name="copy_link"

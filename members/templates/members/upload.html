@@ -1,18 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Importa soci · AIM Voto{% endblock %}
+{% block title %}Importa aventi diritto · AIM Voto{% endblock %}
 {% block content %}
+<a class="back" href="{% url 'voting:voters' election.pk %}">Aventi diritto · {{ election.title }}</a>
 <header class="page-heading">
-    <h1>Importa soci</h1>
-    <p>Carica l’anagrafica, associa le colonne e verifica l’anteprima prima di salvare.</p>
+    <h1>Importa aventi diritto</h1>
+    <p>Carica l’elenco per questa consultazione, associa le colonne e verifica l’anteprima prima di salvare.</p>
 </header>
 <section class="card stack" aria-labelledby="template-title">
     <h2 id="template-title">Modelli di importazione</h2>
     <div class="actions">
-        <a class="button secondary" href="{% url 'members:template-csv' %}">Modello CSV</a>
-        <a class="button secondary" href="{% url 'members:template-xlsx' %}">Modello XLSX</a>
-        <a class="button secondary" href="{% url 'members:demo-csv' %}">CSV con tre soci dimostrativi</a>
+        <a class="button secondary" href="{% url 'members:template-csv' election.pk %}">Modello CSV</a>
+        <a class="button secondary" href="{% url 'members:template-xlsx' election.pk %}">Modello XLSX</a>
+        <a class="button secondary" href="{% url 'members:demo-csv' election.pk %}">CSV con tre elettori dimostrativi</a>
     </div>
-    <p class="muted">Nel file XLSX memorizza gli ID socio e i numeri di cellulare come testo per preservare gli zeri iniziali.</p>
+    <p>Compila Nome, Cognome, Matricola ed Email. Cellulare e Sezione sono facoltativi.</p>
+    <p class="muted">Nel file XLSX memorizza le matricole e i numeri di cellulare come testo per preservare gli zeri iniziali.</p>
 </section>
 <form method="post" enctype="multipart/form-data" class="card stack">
     {% csrf_token %}

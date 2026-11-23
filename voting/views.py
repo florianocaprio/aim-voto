@@ -16,19 +16,18 @@ from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from members.models import Member
-
 from . import reports, services
 from .access import administrator
 from .forms import (
     ContactForm,
     DocumentForm,
     ElectionForm,
-    ElectorateForm,
     QuestionForm,
     ReasonForm,
+    VoterForm,
 )
 from .models import (
+    MAX_ELECTORATE_SIZE,
     Choice,
     Delegation,
     Election,
@@ -193,62 +192,81 @@ def question_edit(request, pk, qid=None):
 
 
 @administrator
+@require_GET
+def electorate(request, pk):
+    return redirect("voting:voters", pk=pk)
+
+
+@administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
-def electorate(request, pk):
+def voter_edit(request, pk, voter_pk=None):
     election = get_election(pk, request.method == "POST")
     require_draft(election)
-    form = ElectorateForm(
-        request.POST if request.method == "POST" else None,
-        initial={
-            "ids": "\n".join(election.voters.values_list("external_id", flat=True))
-        },
+    voter = (
+        get_object_or_404(election.voters, pk=voter_pk)
+        if voter_pk is not None
+        else ElectionVoter(election=election)
     )
+    form = VoterForm(request.POST if request.method == "POST" else None, instance=voter)
     if request.method == "POST" and form.is_valid():
-        ids = {
-            value.strip()
-            for value in form.cleaned_data["ids"].splitlines()
-            if value.strip()
-        }
-        section = form.cleaned_data["section"]
-        if ids - set(
-            Member.objects.filter(external_id__in=ids).values_list(
-                "external_id", flat=True
+        if voter_pk is None and election.voters.count() >= MAX_ELECTORATE_SIZE:
+            form.add_error(
+                None,
+                f"La platea può contenere al massimo {MAX_ELECTORATE_SIZE} elettori.",
             )
-        ):
-            form.add_error("ids", "Uno o più ID non esistono nell’anagrafica.")
-        if section and not Member.objects.filter(section=section).exists():
-            form.add_error("section", "La sezione indicata non esiste.")
-        query = Q(external_id__in=ids)
-        if section:
-            query |= Q(section=section)
-        selected = list(
-            Member.objects.filter(query)[:2001]
-            if ids or section
-            else Member.objects.all()[:2001]
-        )
-        if not selected or len(selected) > 2000:
-            form.add_error(None, "Seleziona da 1 a 2.000 soci.")
-        if not form.errors:
-            services.set_electorate(election, selected)
+        else:
+            form.save()
             services.audit(
-                "platea_salvata",
+                "elettore_salvato",
                 actor=request.user,
                 election=election,
-                details={"soci": len(selected)},
+                voter=voter,
             )
-            return redirect("voting:detail", pk=pk)
-    sections = (
-        Member.objects.order_by("section").values_list("section", flat=True).distinct()
-    )
+            if (
+                election.voters.filter(email__iexact=voter.email)
+                .exclude(pk=voter.pk)
+                .exists()
+            ):
+                messages.warning(
+                    request,
+                    "L’email è condivisa con un altro elettore della consultazione. Verifica il recapito.",
+                )
+            messages.success(
+                request, "Elettore salvato nella platea di questa consultazione."
+            )
+            return redirect("voting:voters", pk=pk)
     return form_page(
         request,
-        "Componi la platea",
+        "Modifica elettore" if voter_pk is not None else "Aggiungi elettore",
         form,
         election,
-        sections=sections,
-        submit_text="Salva platea",
+        submit_text="Salva elettore",
+        back_url=reverse("voting:voters", args=[pk]),
+        back_label="Aventi diritto",
     )
+
+
+@administrator
+@require_POST
+@transaction.atomic
+def voter_remove(request, pk, voter_pk):
+    election = get_election(pk, lock=True)
+    require_draft(election)
+    voter = get_object_or_404(election.voters, pk=voter_pk)
+    if request.POST.get("confirm") != "yes":
+        return HttpResponse(
+            "Conferma la rimozione dell’elettore dalla platea.", status=400
+        )
+    services.audit(
+        "elettore_rimosso",
+        actor=request.user,
+        election=election,
+        details={"posizione": voter.pk},
+    )
+    voter.delete()
+    messages.success(request, "Elettore rimosso dalla platea.")
+    return redirect("voting:voters", pk=pk)
 
 
 @administrator
