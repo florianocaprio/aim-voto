@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.get_state_display }} · AIM Voto{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <a href="{% url 'mailings:history' election.pk %}">Storico invii</a>
+  <h1>{{ campaign.get_kind_display }}</h1>
+  <p>{{ election.title }} · {{ campaign.get_state_display }}</p>
+</header>
+<div class="stack">
+  <section class="card">
+    {% if preview %}
+      <h2>Anteprima e conferma</h2>
+      <p>Posizioni verificate <strong>{{ rows|length }}</strong> · Email da accodare <strong>{{ counts.preview }}</strong> · Escluse <strong>{{ counts.skipped }}</strong></p>
+      {% if sample_body %}
+        <h3>{{ campaign.subject }}</h3>
+        <div>{{ sample_body|linebreaks }}</div>
+      {% endif %}
+      {% if counts.preview %}
+        <p>La conferma vale per la selezione qui sotto. Il numero può diminuire se un socio vota o la consultazione scade.</p>
+        <form method="post" action="{% url 'mailings:confirm' election.pk campaign.pk %}">
+          {% csrf_token %}
+          <button class="button" type="submit">
+            {% if is_reminder %}Invia sollecito a {{ counts.preview }} {{ counts.preview|pluralize:"socio,soci" }}
+            {% else %}Conferma invio a {{ counts.preview }} {{ counts.preview|pluralize:"socio,soci" }}{% endif %}
+          </button>
+        </form>
+      {% else %}
+        <p>Nessun destinatario idoneo all’invio.</p>
+      {% endif %}
+    {% else %}
+      <h2>Avanzamento</h2>
+      <p>
+        {{ rows|length }} posizioni esaminate · {{ counts.queued }} in coda · {{ counts.sending }} in invio ·
+        {{ counts.accepted }} accettate da SMTP · {{ counts.failed }} fallite · {{ counts.uncertain }} con esito incerto ·
+        {{ counts.skipped }} escluse · {{ counts.cancelled }} annullate
+      </p>
+      <p>Avviata da {{ campaign.author.get_username|default:"Account rimosso" }} il {{ campaign.confirmed_at|date:"d/m/Y H:i" }}.</p>
+      {% if campaign.cancelled_at %}<p>Campagna annullata il {{ campaign.cancelled_at|date:"d/m/Y H:i" }}.</p>{% endif %}
+      <p>Oggetto: {{ campaign.subject }}</p>
+      <details><summary>Modello del messaggio</summary>{{ campaign.body|linebreaks }}</details>
+      <div class="actions">
+        <a class="button secondary" href="{% url 'mailings:campaign' election.pk campaign.pk %}">Aggiorna esiti</a>
+        {% if counts.queued %}
+          <form method="post" action="{% url 'mailings:cancel' election.pk campaign.pk %}">
+            {% csrf_token %}
+            <button class="button secondary" type="submit">Annulla gli invii ancora in coda</button>
+          </form>
+        {% endif %}
+      </div>
+      <p class="muted">I messaggi già affidati al server SMTP non sono richiamabili. Per un esito incerto, controlla Mailpit prima di decidere se reinviare individualmente.</p>
+    {% endif %}
+  </section>
+  <section class="card table-wrap">
+    <h2>Destinatari ed esclusioni</h2>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Socio</th><th scope="col">Sezione</th><th scope="col">Email</th><th scope="col">Esito</th>
+          {% if preview and is_reminder %}<th scope="col">Ultimo sollecito accettato</th><th scope="col">Solleciti accettati</th>{% endif %}
+          {% if not preview %}<th scope="col">Tentativi</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <th scope="row">{{ row.voter.first_name }} {{ row.voter.last_name }} <small>{{ row.voter.external_id }}</small></th>
+            <td>{{ row.voter.section }}</td>
+            <td>{{ row.voter.email|default:"Mancante" }}</td>
+            <td>{{ row.get_state_display }}{% if row.reason %} · {{ row.get_reason_display }}{% endif %}{% if row.state == "uncertain" %}<br><small>Message-ID {{ row.smtp_message_id }}</small>{% endif %}</td>
+            {% if preview and is_reminder %}
+              <td>{{ row.last_reminder|date:"d/m/Y H:i"|default:"Nessuno" }}</td><td>{{ row.accepted_reminders }}</td>
+            {% endif %}
+            {% if not preview %}<td>{{ row.attempt_count }}</td>{% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">Nessuna posizione nella selezione.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

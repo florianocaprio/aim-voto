@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Anteprima importazione · AIM Voto{% endblock %}
+{% block content %}
+<header class="page-heading">
+    <h1>Anteprima importazione</h1>
+    <p>Controlla i nuovi record e quelli da aggiornare. L’ID socio identifica il record esistente anche quando cambia l’email.</p>
+</header>
+{% if changed %}
+    <p class="alert" role="alert">L’anteprima è cambiata. Verifica le righe e conferma di nuovo.</p>
+{% endif %}
+{% if summary.errors %}
+    <p class="alert" role="alert">Correggi tutte le righe con errori nel file oppure verifica l’associazione delle colonne.</p>
+{% endif %}
+<section class="card" aria-labelledby="summary-title">
+    <h2 id="summary-title">Riepilogo</h2>
+    {% include "members/summary.html" %}
+</section>
+<div class="table-wrap">
+    <table>
+        <caption>Validazione delle righe</caption>
+        <thead>
+            <tr>
+                <th scope="col">Riga</th>
+                <th scope="col">ID socio</th>
+                <th scope="col">Socio</th>
+                <th scope="col">Email</th>
+                <th scope="col">Cellulare</th>
+                <th scope="col">Sezione</th>
+                <th scope="col">Esito previsto</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in preview.rows %}
+                <tr>
+                    <th scope="row">{{ row.number }}</th>
+                    <td>{{ row.values.external_id }}</td>
+                    <td>{{ row.values.first_name }} {{ row.values.last_name }}</td>
+                    <td>{{ row.values.email }}</td>
+                    <td>{{ row.values.phone|default:"—" }}</td>
+                    <td>{{ row.values.section }}</td>
+                    <td>
+                        {% if row.status == "new" %}Nuovo{% elif row.status == "updated" %}Aggiornamento{% elif row.status == "unchanged" %}Invariato{% endif %}
+                        {% if row.errors %}
+                            <ul>
+                                {% for error in row.errors %}<li>Errore. {{ error }}</li>{% endfor %}
+                            </ul>
+                        {% endif %}
+                        {% if row.warnings %}
+                            <ul>
+                                {% for warning in row.warnings %}<li>Avviso. {{ warning }}</li>{% endfor %}
+                            </ul>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% if not summary.errors %}
+    <form method="post" class="card stack">
+        {% csrf_token %}
+        {{ form.as_div }}
+        <button class="button" type="submit">Conferma importazione</button>
+    </form>
+{% endif %}
+<div class="actions">
+    <a class="button secondary" href="{% url 'members:mapping' batch_id=batch.pk %}">Rivedi associazione</a>
+    <a class="button secondary" href="{% url 'members:import' %}">Carica un altro file</a>
+</div>
+{% endblock %}

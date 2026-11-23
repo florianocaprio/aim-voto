@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Storico invii · AIM Voto{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <a href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+  <h1>Storico invii</h1>
+</header>
+<div class="stack">
+  <div class="actions">
+    <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Prepara inviti</a>
+    <a class="button" href="{% url 'mailings:remind' election.pk %}">Invia sollecito ai non votanti</a>
+  </div>
+  <section class="card table-wrap">
+    <h2>Campagne</h2>
+    <table>
+      <thead>
+        <tr><th scope="col">Tipo</th><th scope="col">Avvio</th><th scope="col">Stato</th><th scope="col">Posizioni</th><th scope="col">In coda</th><th scope="col">Accettate da SMTP</th></tr>
+      </thead>
+      <tbody>
+        {% for campaign in campaigns %}
+          <tr>
+            <th scope="row"><a href="{% url 'mailings:campaign' election.pk campaign.pk %}">{{ campaign.get_kind_display }}</a></th>
+            <td>{{ campaign.confirmed_at|date:"d/m/Y H:i" }}</td>
+            <td>{{ campaign.get_state_display }}</td>
+            <td>{{ campaign.total }}</td>
+            <td>{{ campaign.queued }}</td>
+            <td>{{ campaign.accepted }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">Nessuna campagna confermata.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <section class="card">
+    <h2>Intervallo fra solleciti</h2>
+    <p>Attualmente {{ election.reminder_interval_hours }} ore fra solleciti allo stesso socio.</p>
+    <form method="post" action="{% url 'mailings:interval' election.pk %}" class="stack">
+      {% csrf_token %}
+      {{ interval_form.as_p }}
+      <div class="actions"><button class="button secondary" type="submit">Salva intervallo e motivazione</button></div>
+    </form>
+  </section>
+</div>
+{% endblock %}

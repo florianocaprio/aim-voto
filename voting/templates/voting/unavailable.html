@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Accesso alla scheda{% endblock %}
+{% block content %}
+<section class="card narrow stack">
+  {% if election %}<p class="mode">{{ election.title }}</p>{% endif %}
+  {% if error %}
+    <h1>Scheda non registrata</h1><p class="alert error" role="alert">{{ error }}</p>
+    <div><a class="button secondary" href="{% url 'voting:ballot' %}">Torna alla scheda</a></div>
+  {% elif election %}
+    <h1>{% if election.status == "cancelled" %}Consultazione annullata{% else %}Votazione chiusa{% endif %}</h1>
+    <p>La registrazione di nuove schede è terminata.</p>
+  {% else %}
+    <h1>Usa il tuo link personale</h1><p>Apri il link più recente ricevuto dall’associazione per accedere alla scheda.</p>
+  {% endif %}
+</section>
+{% endblock %}

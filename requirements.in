@@ -1,0 +1,9 @@
+Django==5.2.19
+cryptography
+defusedxml
+django-otp
+gunicorn
+openpyxl
+psycopg[binary]
+reportlab
+whitenoise

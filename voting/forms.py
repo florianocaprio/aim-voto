@@ -1,0 +1,161 @@
+from datetime import datetime
+from typing import ClassVar
+
+from django import forms
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+
+from .models import Election, ElectionDocument, Question
+
+
+class RomeDateTimeField(forms.DateTimeField):
+    widget = forms.DateTimeInput(
+        format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}
+    )
+
+    def to_python(self, value):
+        if value and isinstance(value, str):
+            try:
+                parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+            except ValueError as exc:
+                raise ValidationError(
+                    "Inserisci una data e un’ora locali valide."
+                ) from exc
+            # Django rejects wall times that are repeated or absent at the DST change.
+            return super().to_python(parsed)
+        return super().to_python(value)
+
+
+class ElectionForm(forms.ModelForm):
+    opens_at = RomeDateTimeField(
+        required=False,
+        label="Apertura programmata (ora di Roma)",
+        help_text="Lascia vuoto per aprire manualmente.",
+    )
+    closes_at = RomeDateTimeField(label="Scadenza (ora di Roma)")
+
+    class Meta:
+        model = Election
+        fields: ClassVar = [
+            "title",
+            "description",
+            "mode",
+            "opens_at",
+            "closes_at",
+            "allow_replacement",
+        ]
+        labels: ClassVar = {
+            "title": "Titolo",
+            "description": "Descrizione",
+            "mode": "Modalità",
+            "allow_replacement": "Consenti la sostituzione del voto",
+        }
+        widgets: ClassVar = {"description": forms.Textarea(attrs={"rows": 4})}
+
+    def clean_closes_at(self):
+        value = self.cleaned_data["closes_at"]
+        if value <= timezone.now():
+            raise ValidationError("Scegli una scadenza futura.")
+        return value
+
+
+class QuestionForm(forms.Form):
+    text = forms.CharField(label="Testo del quesito", max_length=500)
+    kind = forms.ChoiceField(label="Tipo", choices=Question.Kind.choices)
+    options = forms.CharField(
+        label="Opzioni, una per riga",
+        required=False,
+        max_length=4500,
+        widget=forms.Textarea(attrs={"rows": 4}),
+        help_text="Per le mozioni le opzioni sono Favorevole, Contrario e Astenuto.",
+    )
+    max_choices = forms.IntegerField(
+        label="Massimo di preferenze", min_value=1, max_value=40, initial=1
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        kind = cleaned.get("kind")
+        if not kind or "options" not in cleaned or "max_choices" not in cleaned:
+            return cleaned
+        if kind == Question.Kind.MOTION:
+            options = ["Favorevole", "Contrario", "Astenuto"]
+        else:
+            options = [
+                option.strip()
+                for option in cleaned["options"].splitlines()
+                if option.strip()
+            ]
+            if not 2 <= len(options) <= 40 or any(
+                len(option) > 200 for option in options
+            ):
+                self.add_error(
+                    "options",
+                    "Inserisci da 2 a 40 opzioni, ciascuna di massimo 200 caratteri.",
+                )
+            elif len({option.casefold() for option in options}) != len(options):
+                self.add_error("options", "Le opzioni devono essere distinte.")
+        if kind in {Question.Kind.MOTION, Question.Kind.SINGLE}:
+            cleaned["max_choices"] = 1
+        elif cleaned["max_choices"] > len(options):
+            self.add_error("max_choices", "Il limite supera il numero delle opzioni.")
+        cleaned["choice_labels"] = options
+        return cleaned
+
+
+class ElectorateForm(forms.Form):
+    section = forms.CharField(label="Intera sezione", required=False, max_length=100)
+    ids = forms.CharField(
+        label="ID socio da includere",
+        required=False,
+        max_length=150000,
+        widget=forms.Textarea(attrs={"rows": 6, "placeholder": "Un ID socio per riga"}),
+        help_text="Aggiungi singoli soci anche da altre sezioni. Lascia vuoti i due campi per includere tutta l’anagrafica.",
+    )
+    confirm = forms.BooleanField(
+        label="Confermo la sostituzione della platea della bozza"
+    )
+
+
+class DocumentForm(forms.Form):
+    file = forms.FileField(label="Documento PDF (massimo 3 MB)")
+
+    def clean_file(self):
+        file = self.cleaned_data["file"]
+        if file.size > 3 * 1024 * 1024 or file.read(5) != b"%PDF-":
+            raise ValidationError("Carica un file PDF valido di massimo 3 MB.")
+        file.seek(0)
+        return file
+
+    def save(self, election):
+        file = self.cleaned_data["file"]
+        return ElectionDocument.objects.create(
+            election=election, name=file.name[:150], content=file.read()
+        )
+
+
+class ContactForm(forms.Form):
+    email = forms.EmailField(label="Email", required=False)
+    phone = forms.CharField(label="Cellulare", required=False, max_length=32)
+    reason = forms.ChoiceField(
+        label="Motivazione",
+        choices=[
+            ("errore", "Correzione di un errore"),
+            ("aggiornamento", "Aggiornamento confermato dal socio"),
+            ("recapito_non_valido", "Recapito non più utilizzabile"),
+            ("altro", "Altra correzione verificata"),
+        ],
+    )
+
+
+class ReasonForm(forms.Form):
+    reason = forms.ChoiceField(
+        label="Motivazione",
+        choices=[
+            ("esposizione", "Possibile esposizione del link"),
+            ("destinatario", "Invio a un destinatario errato"),
+            ("richiesta_socio", "Richiesta verificata del socio"),
+            ("altro", "Altra necessità operativa"),
+        ],
+    )
+    confirm = forms.BooleanField(label="Confermo l’operazione")

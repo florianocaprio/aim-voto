@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Votazioni online{% endblock %}
+{% block content %}
+<section class="card welcome stack">
+  <p class="mode">Associazione nazionale e sezioni</p>
+  <h1>Votazioni online</h1>
+  <p>Per partecipare a una consultazione, apri il link personale ricevuto dall’associazione.</p>
+  <div><a class="button secondary" href="{% url 'voting:dashboard' %}">Area amministrativa</a></div>
+</section>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Risultati e report{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+<h1>Risultati e report</h1>
+<p>{{ election.title }} · Voto palese</p>
+<div class="stats">
+  <div class="card"><strong>{{ eligible }}</strong><span>Aventi diritto</span></div>
+  <div class="card"><strong>{{ total }}</strong><span>Schede valide</span></div>
+  <div class="card"><strong>{{ blank }}</strong><span>Schede bianche</span></div>
+</div>
+<div class="stack">
+  {% for item in rows %}
+  <section class="card stack">
+    <h2>{{ item.question }}</h2>
+    <p>{{ item.answered }} schede con risposta su {{ total }} valide. Quesito lasciato vuoto in {{ item.omitted }} schede.</p>
+    <table>
+      <thead><tr><th scope="col">Opzione</th><th scope="col">Preferenze</th></tr></thead>
+      <tbody>{% for label, count in item.choices %}<tr><th scope="row">{{ label }}</th><td>{{ count }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+  {% endfor %}
+</div>
+<div class="actions lifecycle">
+  <a class="button secondary" href="{% url 'voting:export' election.pk 'risultati-csv' %}">Risultati CSV</a>
+  <a class="button secondary" href="{% url 'voting:export' election.pk 'partecipazione-csv' %}">Elenco di partecipazione CSV</a>
+  <a class="button" href="{% url 'voting:export' election.pk 'report-pdf' %}">Report PDF</a>
+</div>
+{% endblock %}

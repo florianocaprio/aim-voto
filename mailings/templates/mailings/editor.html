@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ kind_label }} · AIM Voto{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <a href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+  <h1>{{ kind_label }}</h1>
+  {% if voter %}<p>{{ voter.first_name }} {{ voter.last_name }} · {{ voter.email|default:"Email mancante" }}</p>{% endif %}
+</header>
+<div class="stack">
+  <section class="card">
+    {% if open %}
+      <form method="post" class="stack">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <div class="actions"><button class="button" type="submit">Verifica destinatari e messaggio</button></div>
+      </form>
+      {% if kind == "reminder" %}
+        <p class="muted">Sono candidati al sollecito gli elettori senza una scheda acquisita. Il sistema applica l’intervallo minimo di {{ election.reminder_interval_hours }} ore.</p>
+      {% endif %}
+    {% else %}
+      <p>Puoi accodare email quando la consultazione è aperta.</p>
+    {% endif %}
+  </section>
+  <section class="card" aria-labelledby="example-message">
+    <h2 id="example-message">Modello del messaggio</h2>
+    <div>{{ sample_body|linebreaks }}</div>
+  </section>
+</div>
+{% endblock %}

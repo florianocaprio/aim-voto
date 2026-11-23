@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Associa le colonne · AIM Voto{% endblock %}
+{% block content %}
+<header class="page-heading">
+    <h1>Associa le colonne</h1>
+    <p>Il file contiene {{ row_count }} righe dati. Verifica la corrispondenza dei campi prima dell’anteprima.</p>
+</header>
+<form method="post" class="card stack">
+    {% csrf_token %}
+    {{ form.as_div }}
+    <div class="actions">
+        <button class="button" type="submit">Controlla l’anteprima</button>
+        <a class="button secondary" href="{% url 'members:import' %}">Carica un altro file</a>
+    </div>
+</form>
+{% endblock %}

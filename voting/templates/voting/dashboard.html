@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Consultazioni{% endblock %}
+{% block content %}
+<div class="page-heading"><div><h1>Consultazioni</h1><p class="muted">Organizza e segui le votazioni di Angeli in Moto ODV.</p></div><a class="button" href="{% url 'voting:create' %}">Nuova consultazione</a></div>
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th scope="col">Titolo</th><th scope="col">Stato</th><th scope="col">Scadenza · Roma</th></tr></thead>
+    <tbody>
+    {% for election in elections %}
+      <tr><th scope="row"><a href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a></th><td>{{ election.get_status_display }}</td><td>{{ election.closes_at|date:"d/m/Y H:i T" }}</td></tr>
+    {% empty %}
+      <tr><td colspan="3">Crea la prima consultazione per iniziare.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ election.title }}{% endblock %}
+{% block content %}
+{% if preview %}<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>{% endif %}
+<section class="narrow stack">
+  <div>
+    <p class="mode">{% if preview %}Anteprima amministrativa · {% endif %}Voto palese (nominativo)</p>
+    <h1>{{ election.title }}</h1>
+    <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
+  </div>
+  <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
+  {% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}
+  {% if documents %}
+    <section class="card stack"><h2>Documenti informativi</h2>
+      <ul class="list">{% for document in documents %}<li><a href="{% url 'voting:voter_document' document.pk %}">{{ document.name }}</a></li>{% endfor %}</ul>
+    </section>
+  {% endif %}
+  {% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
+  {% if record and not editing %}
+    <section class="card stack"><h2>Voto registrato</h2>
+      <p>Ultima acquisizione {{ record.submitted_at|date:"d/m/Y H:i:s T" }}.</p>
+      {% if election.allow_replacement %}<div><a class="button" href="?modifica=1">Sostituisci il voto</a></div>{% endif %}
+    </section>
+  {% else %}
+    {% if record %}<p>La scheda precedente resta valida fino alla registrazione di una nuova conferma.</p>{% endif %}
+    {% if not preview %}
+      <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="revision" value="{{ record.revision|default:0 }}">
+    {% else %}
+      <div class="stack">
+    {% endif %}
+      <p>Puoi lasciare un quesito senza risposta. Se li lasci tutti vuoti e confermi, registri una scheda bianca.</p>
+      {% for question, selected in questions %}
+        <fieldset class="card options" {% if preview %}disabled{% endif %}>
+          <legend>{{ question.text }}</legend>
+          {% if question.kind == "multiple" or question.kind == "candidates" %}
+            <p class="muted">Fino a {{ question.max_choices }} preferenze.</p>
+            {% for option in question.choices.all %}
+              <label><input type="checkbox" name="q{{ question.pk }}" value="{{ option.pk }}" {% if option.pk in selected %}checked{% endif %}> {{ option.text }}</label>
+            {% endfor %}
+          {% else %}
+            {% for option in question.choices.all %}
+              <label><input type="radio" name="q{{ question.pk }}" value="{{ option.pk }}" {% if option.pk in selected %}checked{% endif %}> {{ option.text }}</label>
+            {% endfor %}
+            <label><input type="radio" name="q{{ question.pk }}" value=""> Lascia senza risposta</label>
+          {% endif %}
+        </fieldset>
+      {% empty %}<p>Nessun quesito configurato.</p>{% endfor %}
+    {% if not preview %}
+      <div><button class="button">Rivedi la scheda</button></div>
+      </form>
+    {% else %}
+      </div>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

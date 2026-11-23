@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Ricevuta di acquisizione{% endblock %}
+{% block content %}
+<section class="card narrow stack">
+  <p class="mode">{{ election.title }}</p>
+  <h1>Ricevuta di acquisizione</h1>
+  <p>La scheda è stata registrata il {{ receipt.accepted_at|date:"d/m/Y" }} alle {{ receipt.accepted_at|date:"H:i:s T" }}.</p>
+  <p>Versione {{ receipt.revision }} · {% if current %}Scheda corrente{% else %}Scheda sostituita da un invio successivo{% endif %}</p>
+  <div><a class="button secondary" href="{% url 'voting:ballot' %}">Torna alla votazione</a></div>
+</section>
+{% endblock %}

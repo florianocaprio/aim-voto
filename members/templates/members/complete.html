@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Importazione completata · AIM Voto{% endblock %}
+{% block content %}
+<header class="page-heading">
+    <h1>Importazione completata</h1>
+    <p>Importazione registrata il {{ batch.completed_at|date:"j F Y, H:i T" }}.</p>
+</header>
+<section class="card" aria-labelledby="summary-title">
+    <h2 id="summary-title">Riepilogo</h2>
+    {% include "members/summary.html" %}
+</section>
+<a class="button secondary" href="{% url 'members:import' %}">Torna all’importazione</a>
+{% endblock %}

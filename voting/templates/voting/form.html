@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+{% if election %}<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>{% else %}<a class="back" href="{% url 'voting:dashboard' %}">Consultazioni</a>{% endif %}
+<h1>{{ title }}</h1>
+<section class="card narrow stack">
+  {% if subject %}<p>{{ subject.first_name }} {{ subject.last_name }} · {{ subject.external_id }}</p>{% endif %}
+  {% if sections %}<p class="muted">Sezioni disponibili · {{ sections|join:", " }}</p>{% endif %}
+  <form method="post" class="stack" {% if multipart %}enctype="multipart/form-data"{% endif %}>{% csrf_token %}
+    {{ form.as_div }}
+    {% if show_secret_option %}<label class="muted"><input type="checkbox" disabled> Voto segreto · In preparazione</label>{% endif %}
+    <div><button class="button">{{ submit_text }}</button></div>
+  </form>
+  {% if remove_question %}
+  <form method="post" class="actions">{% csrf_token %}
+    <label><input type="checkbox" name="confirm_remove" value="yes" required> Confermo la rimozione</label>
+    <button class="button danger" name="remove" value="yes">Rimuovi quesito</button>
+  </form>
+  {% endif %}
+  {% for document in documents %}
+    <form method="post" class="actions">{% csrf_token %}
+      <a href="{% url 'voting:admin_document' election.pk document.pk %}">{{ document.name }}</a>
+      <button class="button secondary" name="remove" value="{{ document.pk }}">Rimuovi documento</button>
+    </form>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Accesso amministrativo · AIM Voto{% endblock %}
+{% block content %}
+<h1>Accesso amministrativo</h1>
+<section class="card narrow stack">
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {{ form.as_div }}
+    <input type="hidden" name="next" value="{{ next }}">
+    <div><button class="button" type="submit">Accedi</button></div>
+  </form>
+</section>
+{% endblock %}

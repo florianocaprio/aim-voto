@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Accesso personale{% endblock %}
+{% block content %}
+<section class="card narrow stack" data-redeem data-ballot="{% url 'voting:ballot' %}">
+  <h1>Accedi alla scheda</h1>
+  <p data-redeem-status role="status">Apertura della scheda personale…</p>
+  <form method="post" hidden>{% csrf_token %}</form>
+  <noscript><p>Per aprire il link personale, abilita JavaScript nel browser e riapri il link ricevuto.</p></noscript>
+</section>
+{% endblock %}

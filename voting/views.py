@@ -1,0 +1,760 @@
+import re
+from io import BytesIO
+from uuid import uuid4
+
+from django.contrib import messages
+from django.core import signing
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.db.models import Exists, OuterRef, Q, Subquery
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
+
+from members.models import Member
+
+from . import reports, services
+from .access import administrator
+from .forms import (
+    ContactForm,
+    DocumentForm,
+    ElectionForm,
+    ElectorateForm,
+    QuestionForm,
+    ReasonForm,
+)
+from .models import (
+    Choice,
+    Election,
+    ElectionDocument,
+    ElectionVoter,
+    NamedBallot,
+    Question,
+    VotingCredential,
+)
+
+SESSION_KEY = "vote_access"
+SUBMISSION_SALT = "aim-voto.ballot-preview"
+
+
+def home(request):
+    return render(request, "voting/home.html")
+
+
+@administrator
+@require_GET
+def dashboard(request):
+    return render(
+        request, "voting/dashboard.html", {"elections": Election.objects.all()}
+    )
+
+
+def get_election(pk, lock=False):
+    queryset = Election.objects.select_for_update() if lock else Election
+    return get_object_or_404(queryset, pk=pk)
+
+
+def require_draft(election):
+    if election.status != Election.Status.DRAFT:
+        raise Http404
+
+
+def form_page(request, title, form, election=None, *, submit_text="Salva", **context):
+    return render(
+        request,
+        "voting/form.html",
+        {
+            "title": title,
+            "form": form,
+            "election": election,
+            "submit_text": submit_text,
+            **context,
+        },
+    )
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def election_edit(request, pk=None):
+    election = get_election(pk, request.method == "POST") if pk is not None else None
+    if election:
+        require_draft(election)
+    form = ElectionForm(
+        request.POST if request.method == "POST" else None, instance=election
+    )
+    if request.method == "POST" and form.is_valid():
+        saved = form.save(commit=False)
+        if election is None:
+            saved.created_by = request.user
+        saved.save()
+        services.audit("bozza_salvata", actor=request.user, election=saved)
+        return redirect("voting:detail", pk=saved.pk)
+    return form_page(
+        request,
+        "Modifica consultazione" if election else "Nuova consultazione",
+        form,
+        election,
+        show_secret_option=True,
+    )
+
+
+@administrator
+@require_GET
+def detail(request, pk):
+    election = get_election(pk)
+    electorate_count = election.voters.count()
+    ballot_count = NamedBallot.objects.filter(voter__election=election).count()
+    from mailings.models import EmailDelivery, MailKind
+
+    mail = EmailDelivery.objects.filter(
+        voter__election=election, campaign__kind__in=[MailKind.INVITE, MailKind.RESEND]
+    )
+    mail_states = mail.values_list("voter_id", "state").distinct()
+    accepted = {voter_id for voter_id, state in mail_states if state == "accepted"}
+    problems = {
+        voter_id for voter_id, state in mail_states if state in {"failed", "uncertain"}
+    }
+    return render(
+        request,
+        "voting/detail.html",
+        {
+            "election": election,
+            "questions": services.ballot_questions(election),
+            "documents": election.documents.defer("content"),
+            "electorate_count": electorate_count,
+            "ballot_count": ballot_count,
+            "turnout": round(100 * ballot_count / electorate_count, 1)
+            if electorate_count
+            else 0,
+            "is_open": services.is_open(election),
+            "accepted": len(accepted),
+            "problems": len(problems),
+        },
+    )
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def question_edit(request, pk, qid=None):
+    election = get_election(pk, request.method == "POST")
+    require_draft(election)
+    question = (
+        get_object_or_404(election.questions, pk=qid) if qid is not None else None
+    )
+    initial = None
+    if question:
+        initial = {
+            "text": question.text,
+            "kind": question.kind,
+            "max_choices": question.max_choices,
+            "options": "\n".join(question.choices.values_list("text", flat=True)),
+        }
+    if request.method == "POST" and request.POST.get("remove") and question:
+        if request.POST.get("confirm_remove") != "yes":
+            return HttpResponse("Conferma la rimozione del quesito.", status=400)
+        question.delete()
+        services.audit("quesito_rimosso", actor=request.user, election=election)
+        return redirect("voting:detail", pk=pk)
+    form = QuestionForm(
+        request.POST if request.method == "POST" else None, initial=initial
+    )
+    if request.method == "POST" and form.is_valid():
+        if not question and election.questions.count() >= 30:
+            form.add_error(
+                None, "Sono ammessi al massimo 30 quesiti per consultazione."
+            )
+        else:
+            question = question or Question(election=election)
+            for field in ("text", "kind", "max_choices"):
+                setattr(question, field, form.cleaned_data[field])
+            question.save()
+            question.choices.all().delete()
+            Choice.objects.bulk_create(
+                Choice(question=question, text=label)
+                for label in form.cleaned_data["choice_labels"]
+            )
+            services.audit("quesito_salvato", actor=request.user, election=election)
+            return redirect("voting:detail", pk=pk)
+    return form_page(
+        request,
+        "Modifica quesito" if question else "Aggiungi quesito",
+        form,
+        election,
+        remove_question=bool(question),
+    )
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def electorate(request, pk):
+    election = get_election(pk, request.method == "POST")
+    require_draft(election)
+    form = ElectorateForm(
+        request.POST if request.method == "POST" else None,
+        initial={
+            "ids": "\n".join(election.voters.values_list("external_id", flat=True))
+        },
+    )
+    if request.method == "POST" and form.is_valid():
+        ids = {
+            value.strip()
+            for value in form.cleaned_data["ids"].splitlines()
+            if value.strip()
+        }
+        section = form.cleaned_data["section"]
+        if ids - set(
+            Member.objects.filter(external_id__in=ids).values_list(
+                "external_id", flat=True
+            )
+        ):
+            form.add_error("ids", "Uno o più ID non esistono nell’anagrafica.")
+        if section and not Member.objects.filter(section=section).exists():
+            form.add_error("section", "La sezione indicata non esiste.")
+        query = Q(external_id__in=ids)
+        if section:
+            query |= Q(section=section)
+        selected = list(
+            Member.objects.filter(query)[:2001]
+            if ids or section
+            else Member.objects.all()[:2001]
+        )
+        if not selected or len(selected) > 2000:
+            form.add_error(None, "Seleziona da 1 a 2.000 soci.")
+        if not form.errors:
+            services.set_electorate(election, selected)
+            services.audit(
+                "platea_salvata",
+                actor=request.user,
+                election=election,
+                details={"soci": len(selected)},
+            )
+            return redirect("voting:detail", pk=pk)
+    sections = (
+        Member.objects.order_by("section").values_list("section", flat=True).distinct()
+    )
+    return form_page(
+        request,
+        "Componi la platea",
+        form,
+        election,
+        sections=sections,
+        submit_text="Salva platea",
+    )
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def documents(request, pk):
+    election = get_election(pk, request.method == "POST")
+    require_draft(election)
+    if request.method == "POST" and request.POST.get("remove"):
+        value = request.POST["remove"]
+        if not value.isdecimal():
+            raise Http404
+        get_object_or_404(election.documents, pk=value).delete()
+        services.audit("documento_rimosso", actor=request.user, election=election)
+        return redirect("voting:detail", pk=pk)
+    form = DocumentForm(
+        request.POST if request.method == "POST" else None, request.FILES or None
+    )
+    if request.method == "POST" and form.is_valid():
+        if election.documents.count() >= 5:
+            form.add_error("file", "Sono ammessi al massimo cinque documenti.")
+        else:
+            form.save(election)
+            services.audit("documento_caricato", actor=request.user, election=election)
+            return redirect("voting:detail", pk=pk)
+    return form_page(
+        request,
+        "Documenti informativi",
+        form,
+        election,
+        multipart=True,
+        documents=election.documents.defer("content"),
+    )
+
+
+def document_response(document):
+    return FileResponse(
+        BytesIO(bytes(document.content)),
+        content_type="application/pdf",
+        as_attachment=True,
+        filename=document.name,
+    )
+
+
+@administrator
+@require_GET
+def admin_document(request, pk, doc):
+    return document_response(
+        get_object_or_404(ElectionDocument, pk=doc, election_id=pk)
+    )
+
+
+@administrator
+@require_GET
+def preview(request, pk):
+    election = get_election(pk)
+    return render(
+        request,
+        "voting/ballot.html",
+        {
+            "election": election,
+            "preview": True,
+            "questions": [
+                (question, set()) for question in services.ballot_questions(election)
+            ],
+        },
+    )
+
+
+TRANSITIONS = {
+    "apri": "Apri la consultazione",
+    "programma": "Programma l’apertura",
+    "chiudi": "Chiudi la consultazione",
+    "scrutina": "Pubblica lo scrutinio",
+    "annulla": "Annulla la consultazione",
+    "elimina": "Elimina la bozza",
+    "bozza": "Riporta in bozza",
+}
+
+
+def apply_transition(election, action, actor, reason):
+    current = election.status
+    statuses = Election.Status
+    now = services.database_now()
+    if action == "apri":
+        services.open_locked(election, actor=actor, now=now)
+        return "voting:detail"
+    if action == "chiudi":
+        services.close_locked(election, actor=actor, now=now)
+        return "voting:detail"
+    if action == "elimina" and current == statuses.DRAFT:
+        services.audit("eliminazione_bozza", actor=actor, election=election)
+        election.delete()
+        return "voting:dashboard"
+    if action == "programma" and current == statuses.DRAFT:
+        if (
+            election.opens_at is None
+            or not now < election.opens_at < election.closes_at
+        ):
+            raise ValidationError(
+                "Imposta un orario futuro di apertura precedente alla scadenza."
+            )
+        if not election.questions.exists() or not election.voters.exists():
+            raise ValidationError("Inserisci almeno un quesito e un elettore.")
+        election.status = statuses.SCHEDULED
+    elif action == "bozza" and current == statuses.SCHEDULED:
+        election.status = statuses.DRAFT
+    elif action == "scrutina" and current == statuses.CLOSED:
+        election.status = statuses.TALLIED
+    elif action == "annulla" and current in {
+        statuses.SCHEDULED,
+        statuses.OPEN,
+        statuses.CLOSED,
+    }:
+        if not reason:
+            raise ValidationError("Indica una motivazione.")
+        election.status = statuses.CANCELLED
+        election.cancellation_reason = reason
+        election.ended_at = election.ended_at or min(now, election.closes_at)
+    else:
+        raise ValidationError("Operazione non disponibile nello stato attuale.")
+    election.save(update_fields=["status", "ended_at", "cancellation_reason"])
+    services.audit(action, actor=actor, election=election)
+    return "voting:detail"
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def transition(request, pk, action):
+    if action not in TRANSITIONS:
+        raise Http404
+    election = get_election(pk, request.method == "POST")
+    if request.method == "POST":
+        try:
+            if request.POST.get("confirm") != "yes":
+                raise ValidationError("Conferma l’operazione prima di continuare.")
+            reason = request.POST.get("reason", "").strip()
+            if len(reason) > 500:
+                raise ValidationError(
+                    "La motivazione può avere al massimo 500 caratteri."
+                )
+            destination = apply_transition(election, action, request.user, reason)
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+        else:
+            if destination == "voting:dashboard":
+                return redirect(destination)
+            return redirect(destination, pk=pk)
+    return render(
+        request,
+        "voting/transition.html",
+        {
+            "election": election,
+            "action": action,
+            "title": TRANSITIONS[action],
+        },
+    )
+
+
+@administrator
+@require_GET
+def voters(request, pk):
+    from mailings.models import EmailDelivery, MailKind
+
+    election = get_election(pk)
+    search = request.GET.get("q", "").strip()[:150]
+    deliveries = (
+        EmailDelivery.objects.filter(
+            voter_id=OuterRef("pk"),
+            campaign__kind__in=[MailKind.INVITE, MailKind.RESEND],
+        )
+        .exclude(campaign__state="preview")
+        .order_by("-pk")
+    )
+    queryset = election.voters.annotate(
+        has_voted=Exists(NamedBallot.objects.filter(voter_id=OuterRef("pk"))),
+        mail_state=Subquery(deliveries.values("state")[:1]),
+    )
+    for term in search.split():
+        queryset = queryset.filter(
+            Q(first_name__icontains=term)
+            | Q(last_name__icontains=term)
+            | Q(external_id__icontains=term)
+            | Q(email__icontains=term)
+            | Q(phone__icontains=term)
+        )
+    page = Paginator(queryset, 40).get_page(request.GET.get("page"))
+    state_field = EmailDelivery._meta.get_field("state")
+    labels = dict(state_field.flatchoices)
+    for voter in page:
+        voter.mail_label = labels.get(voter.mail_state, "Nessun invio")
+    return render(
+        request,
+        "voting/voters.html",
+        {
+            "election": election,
+            "page": page,
+            "search": search,
+            "is_open": services.is_open(election),
+        },
+    )
+
+
+@administrator
+@require_POST
+@transaction.atomic
+def link(request, pk, voter_pk):
+    election = get_election(pk, lock=True)
+    voter = get_object_or_404(election.voters, pk=voter_pk)
+    try:
+        url = services.copy_link(election, voter, request.user)
+    except ValidationError as exc:
+        return JsonResponse({"error": exc.messages[0]}, status=409)
+    return JsonResponse({"url": url})
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def rotate(request, pk, voter_pk):
+    election = get_election(pk, request.method == "POST")
+    voter = get_object_or_404(election.voters, pk=voter_pk)
+    form = ReasonForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            services.rotate_link(
+                election, voter, request.user, form.cleaned_data["reason"]
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(
+                request, "Link precedente revocato. Puoi copiare il link attivo."
+            )
+            return redirect("voting:voters", pk=pk)
+    return form_page(
+        request,
+        "Revoca e rigenera link",
+        form,
+        election,
+        submit_text="Revoca e rigenera link",
+        subject=voter,
+    )
+
+
+@administrator
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def contact(request, pk, voter_pk):
+    election = get_election(pk, request.method == "POST")
+    if election.status not in {
+        Election.Status.DRAFT,
+        Election.Status.SCHEDULED,
+    } and not services.is_open(election):
+        raise Http404
+    voter = get_object_or_404(election.voters, pk=voter_pk)
+    form = ContactForm(
+        request.POST if request.method == "POST" else None,
+        initial={"email": voter.email, "phone": voter.phone},
+    )
+    if request.method == "POST" and form.is_valid():
+        changed = []
+        for field in ("email", "phone"):
+            value = form.cleaned_data[field]
+            if getattr(voter, field) != value:
+                setattr(voter, field, value)
+                changed.append(field)
+        if changed:
+            voter.save(update_fields=changed)
+            services.audit(
+                "recapiti_corretti",
+                actor=request.user,
+                election=election,
+                voter=voter,
+                details={"campi": changed, "motivo": form.cleaned_data["reason"]},
+            )
+        messages.success(request, "Recapiti della consultazione salvati.")
+        return redirect("voting:voters", pk=pk)
+    return form_page(request, "Correggi i recapiti", form, election, subject=voter)
+
+
+@ensure_csrf_cookie
+@require_http_methods(["GET", "POST"])
+def access(request):
+    if request.method == "GET":
+        return render(request, "voting/access.html")
+    source = request.META.get("REMOTE_ADDR", "unknown")
+    if not services.admit_request("link", source, limit=180, seconds=60):
+        return JsonResponse(
+            {"error": "Troppi tentativi. Riprova fra un minuto."}, status=429
+        )
+    token = request.POST.get("token", "")
+    if re.fullmatch(r"[A-Za-z0-9_-]{43}", token) is None:
+        return JsonResponse({"error": "Il link personale non è valido."}, status=404)
+    credential = (
+        VotingCredential.objects.filter(digest=services.digest(token))
+        .values("voter_id", "voter__election_id", "version")
+        .first()
+    )
+    if credential is None:
+        return JsonResponse(
+            {"error": "Il link personale non è più valido."}, status=404
+        )
+    request.session.flush()
+    request.session[SESSION_KEY] = [
+        credential["voter_id"],
+        credential["voter__election_id"],
+        credential["version"],
+    ]
+    return JsonResponse({"ok": True})
+
+
+def voter_context(request):
+    ids = request.session.get(SESSION_KEY)
+    if not ids:
+        return None
+    voter_id, election_id, version = ids
+    return (
+        ElectionVoter.objects.select_related("election")
+        .filter(
+            pk=voter_id,
+            election_id=election_id,
+            credential__version=version,
+        )
+        .first()
+    )
+
+
+def ballot_page(
+    request,
+    voter,
+    ballot_record=None,
+    answers=None,
+    *,
+    editing=False,
+    error=None,
+    status=200,
+):
+    if voter is None:
+        return render(request, "voting/unavailable.html", status=403)
+    if not services.is_open(voter.election):
+        return render(request, "voting/unavailable.html", {"election": voter.election})
+    if answers is None:
+        answers = ballot_record.answers if ballot_record and editing else {}
+    return render(
+        request,
+        "voting/ballot.html",
+        {
+            "election": voter.election,
+            "voter": voter,
+            "record": ballot_record,
+            "editing": editing,
+            "questions": [
+                (question, set(answers.get(str(question.pk), [])))
+                for question in services.ballot_questions(voter.election)
+            ],
+            "documents": voter.election.documents.defer("content"),
+            "error": error,
+        },
+        status=status,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def ballot(request):
+    voter = voter_context(request)
+    if voter is None:
+        return ballot_page(request, None)
+    current = NamedBallot.objects.filter(voter=voter).first()
+    if request.method == "GET" or not services.is_open(voter.election):
+        return ballot_page(
+            request, voter, current, editing=request.GET.get("modifica") == "1"
+        )
+    if current and not voter.election.allow_replacement:
+        return ballot_page(
+            request,
+            voter,
+            current,
+            error="La sostituzione non è consentita.",
+            status=409,
+        )
+    questions = services.ballot_questions(voter.election)
+    try:
+        revision = int(request.POST.get("revision", "-1"))
+        if revision != (current.revision if current else 0):
+            raise ValidationError(
+                "La scheda è cambiata. Compilala di nuovo prima di confermare."
+            )
+        keys = set(request.POST) - {"revision", "csrfmiddlewaretoken"}
+        if any(re.fullmatch(r"q[0-9]+", name) is None for name in keys):
+            raise ValidationError("Scheda non valida.")
+        raw = {}
+        for name in keys:
+            values = request.POST.getlist(name)
+            raw[name[1:]] = [] if values == [""] else [int(value) for value in values]
+        answers = services.validate_answers(questions, raw)
+    except (ValueError, ValidationError) as exc:
+        error = (
+            exc.messages[0]
+            if isinstance(exc, ValidationError)
+            else "Opzioni non valide."
+        )
+        return ballot_page(
+            request, voter, current, editing=True, error=error, status=400
+        )
+    payload = signing.dumps(
+        [request.session[SESSION_KEY], str(uuid4()), revision, answers],
+        salt=SUBMISSION_SALT,
+    )
+    summary = [
+        (
+            question,
+            [
+                choice.text
+                for choice in question.choices.all()
+                if choice.pk in answers.get(str(question.pk), [])
+            ],
+        )
+        for question in questions
+    ]
+    return render(
+        request,
+        "voting/review.html",
+        {
+            "election": voter.election,
+            "summary": summary,
+            "payload": payload,
+            "blank": not answers,
+            "replacement": bool(current),
+        },
+    )
+
+
+@require_POST
+def submit(request):
+    voter = voter_context(request)
+    if voter is None:
+        return ballot_page(request, None)
+    try:
+        session_data, request_id, revision, answers = signing.loads(
+            request.POST.get("payload", ""),
+            salt=SUBMISSION_SALT,
+        )
+        if session_data != request.session[SESSION_KEY]:
+            raise signing.BadSignature
+        receipt, current = services.record_ballot(
+            *session_data, request_id, revision, answers
+        )
+    except (signing.BadSignature, ValueError):
+        return render(
+            request,
+            "voting/unavailable.html",
+            {"error": "Conferma della scheda non valida."},
+            status=400,
+        )
+    except ValidationError as exc:
+        return render(
+            request,
+            "voting/unavailable.html",
+            {
+                "election": voter.election,
+                "error": exc.messages[0],
+            },
+            status=409,
+        )
+    return render(
+        request,
+        "voting/receipt.html",
+        {
+            "election": voter.election,
+            "receipt": receipt,
+            "current": current,
+        },
+    )
+
+
+@require_GET
+def voter_document(request, pk):
+    voter = voter_context(request)
+    if not voter or not services.is_open(voter.election):
+        raise Http404
+    return document_response(
+        get_object_or_404(ElectionDocument, pk=pk, election=voter.election)
+    )
+
+
+def tallied_election(pk):
+    return get_object_or_404(Election, pk=pk, status=Election.Status.TALLIED)
+
+
+@administrator
+@require_GET
+def results(request, pk):
+    election = tallied_election(pk)
+    return render(
+        request,
+        "voting/results.html",
+        {"election": election, **reports.tally(election)},
+    )
+
+
+@administrator
+@require_GET
+def export(request, pk, kind):
+    election = tallied_election(pk)
+    if kind == "risultati-csv":
+        return reports.aggregate_csv(election)
+    if kind == "partecipazione-csv":
+        return reports.participation_csv(election)
+    if kind == "report-pdf":
+        return reports.summary_pdf(election)
+    raise Http404

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Elettori della votazione{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
+<h1>Elettori della votazione</h1>
+<form method="get" class="search">
+  <div><label for="search">Nome, ID, email o cellulare</label><input id="search" name="q" value="{{ search }}" type="search" maxlength="150"></div>
+  <button class="button">Cerca</button>
+</form>
+<div class="card table-wrap">
+<table>
+  <thead><tr><th scope="col">Socio</th><th scope="col">Recapiti</th><th scope="col">Ultimo invito o reinvio</th><th scope="col">Partecipazione</th><th scope="col">Azioni</th></tr></thead>
+  <tbody>
+  {% for voter in page %}
+    <tr>
+      <th scope="row">{{ voter.first_name }} {{ voter.last_name }}<small>{{ voter.external_id }} · {{ voter.section }}</small></th>
+      <td>{{ voter.email|default:"Email assente" }}<small>{{ voter.phone|default:"Cellulare assente" }}</small></td>
+      <td>{{ voter.mail_label }}</td>
+      <td>{% if voter.has_voted %}Ha votato{% else %}Non ha ancora votato{% endif %}</td>
+      <td>
+        <div class="row-actions">
+          {% if is_open %}
+          <form method="post" action="{% url 'voting:copy_link' election.pk voter.pk %}" data-copy-link>{% csrf_token %}
+            <button class="button secondary">Copia link personale</button>
+            <p class="copy-result" role="status" hidden></p>
+            <input type="text" aria-label="Link personale da copiare" readonly hidden>
+          </form>
+          <a href="{% url 'mailings:resend' election.pk voter.pk %}">Reinvia email</a>
+          <a href="{% url 'voting:rotate' election.pk voter.pk %}">Revoca e rigenera link</a>
+          {% endif %}
+          {% if is_open or election.status == "draft" or election.status == "scheduled" %}
+          <a href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}<tr><td colspan="5">Nessun elettore per questa ricerca.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% if page.has_other_pages %}
+<nav class="pagination" aria-label="Pagine degli elettori">
+  {% if page.has_previous %}<a href="?q={{ search|urlencode }}&amp;page={{ page.previous_page_number }}">Precedente</a>{% endif %}
+  <span>Pagina {{ page.number }} di {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?q={{ search|urlencode }}&amp;page={{ page.next_page_number }}">Successiva</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

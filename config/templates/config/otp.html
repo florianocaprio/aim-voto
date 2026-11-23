@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Verifica amministrativa · AIM Voto{% endblock %}
+{% block content %}
+<h1>Verifica amministrativa</h1>
+<section class="card narrow stack">
+  {% if devices %}
+    <p>Inserisci il codice a sei cifre dell'app di autenticazione.</p>
+    <form method="post" class="stack">
+      {% csrf_token %}
+      {{ form.as_div }}
+      <input type="hidden" name="next" value="{{ next }}">
+      <div><button class="button" type="submit">Verifica codice</button></div>
+    </form>
+  {% else %}
+    <p>Chiedi al responsabile tecnico di configurare il secondo fattore per questo account.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ election.title }}{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:dashboard' %}">Tutte le consultazioni</a>
+<div class="page-heading">
+  <div><p class="mode">{{ election.get_status_display }} · Voto palese</p><h1>{{ election.title }}</h1>
+    <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
+    {% if election.opens_at and not election.opened_at %}<p>Apertura prevista {{ election.opens_at|date:"d/m/Y H:i T" }}</p>{% endif %}
+  </div>
+  {% if election.status == "draft" %}<a class="button secondary" href="{% url 'voting:edit' election.pk %}">Modifica bozza</a>{% endif %}
+</div>
+{% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}
+{% if election.cancellation_reason %}<p class="alert">Motivo dell’annullamento · {{ election.cancellation_reason }}</p>{% endif %}
+{% if election.status == "open" and not is_open %}<p class="alert">La scadenza è trascorsa. Chiudi la consultazione per procedere allo scrutinio.</p>{% endif %}
+<div class="stats" aria-label="Partecipazione">
+  <div class="card"><strong>{{ electorate_count }}</strong><span>{% if election.opened_at %}Aventi diritto{% else %}Soci selezionati{% endif %}</span></div>
+  <div class="card"><strong>{{ ballot_count }}</strong><span>Votanti unici</span></div>
+  <div class="card"><strong>{{ turnout }}%</strong><span>Affluenza</span></div>
+  <div class="card"><strong>{{ accepted }}</strong><span>Soci con invito accettato da SMTP</span></div>
+  <div class="card"><strong>{{ problems }}</strong><span>Soci con invito fallito o incerto</span></div>
+</div>
+<div class="sections">
+  <section class="card stack">
+    <h2>Scheda e documenti</h2>
+    <p>{% if election.allow_replacement %}Sostituzione consentita fino alla chiusura.{% else %}Sostituzione disabilitata.{% endif %}</p>
+    <ol class="list">
+      {% for question in questions %}
+        <li>{% if election.status == "draft" %}<a href="{% url 'voting:question_edit' election.pk question.pk %}">{{ question.text }}</a>{% else %}{{ question.text }}{% endif %}
+          <small>{{ question.get_kind_display }}</small></li>
+      {% empty %}
+        <li>Nessun quesito.</li>
+      {% endfor %}
+    </ol>
+    {% if documents %}<ul class="list">{% for document in documents %}<li><a href="{% url 'voting:admin_document' election.pk document.pk %}">{{ document.name }}</a></li>{% endfor %}</ul>{% endif %}
+    <div class="actions">
+      {% if election.status == "draft" %}
+        <a class="button secondary" href="{% url 'voting:question_add' election.pk %}">Aggiungi quesito</a>
+        <a class="button secondary" href="{% url 'voting:documents' election.pk %}">Gestisci documenti</a>
+      {% endif %}
+      <a class="button secondary" href="{% url 'voting:preview' election.pk %}">Anteprima scheda</a>
+    </div>
+  </section>
+  <section class="card stack">
+    <h2>Elettori e comunicazioni</h2>
+    <div class="actions">
+      {% if election.status == "draft" %}<a class="button" href="{% url 'voting:electorate' election.pk %}">Componi la platea</a>{% endif %}
+      <a class="button secondary" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
+      {% if is_open %}
+        <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Prepara inviti email</a>
+        <a class="button" href="{% url 'mailings:remind' election.pk %}">Invia sollecito ai non votanti</a>
+      {% elif election.status == "draft" or election.status == "scheduled" %}
+        <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Anteprima email di invito</a>
+      {% endif %}
+      {% if election.opened_at %}<a class="button secondary" href="{% url 'mailings:history' election.pk %}">Storico invii</a>{% endif %}
+    </div>
+  </section>
+</div>
+<section class="card stack lifecycle">
+  <h2>Stato della consultazione</h2>
+  <div class="actions">
+  {% if election.status == "draft" %}
+    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri ora</a>
+    {% if election.opens_at %}<a class="button secondary" href="{% url 'voting:transition' election.pk 'programma' %}">Programma l’apertura</a>{% endif %}
+    <a class="button danger" href="{% url 'voting:transition' election.pk 'elimina' %}">Elimina bozza</a>
+  {% elif election.status == "scheduled" %}
+    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri ora</a>
+    <a class="button secondary" href="{% url 'voting:transition' election.pk 'bozza' %}">Riporta in bozza</a>
+  {% elif election.status == "open" %}
+    <a class="button" href="{% url 'voting:transition' election.pk 'chiudi' %}">Chiudi la consultazione</a>
+  {% elif election.status == "closed" %}
+    <a class="button" href="{% url 'voting:transition' election.pk 'scrutina' %}">Pubblica lo scrutinio</a>
+  {% elif election.status == "tallied" %}
+    <a class="button" href="{% url 'voting:results' election.pk %}">Risultati e report</a>
+  {% endif %}
+  {% if election.status == "scheduled" or election.status == "open" or election.status == "closed" %}
+    <a class="button danger" href="{% url 'voting:transition' election.pk 'annulla' %}">Annulla consultazione</a>
+  {% endif %}
+  </div>
+</section>
+{% endblock %}

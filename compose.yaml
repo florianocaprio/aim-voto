@@ -1,0 +1,114 @@
+name: aim-voto
+
+x-app: &app
+  image: aim-voto-local
+  build:
+    context: .
+    target: runtime
+  environment: &app-environment
+    AIM_PROFILE: development
+    AIM_DEBUG: ${AIM_DEBUG:-0}
+    AIM_BASE_URL: ${AIM_BASE_URL:-http://localhost:8000}
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Esegui python3 scripts/setup_local.py}
+    VOTING_LINK_KEYS: ${VOTING_LINK_KEYS:?Esegui python3 scripts/setup_local.py}
+    REQUIRE_ADMIN_MFA: ${REQUIRE_ADMIN_MFA:-0}
+    POSTGRES_HOST: db
+    POSTGRES_DB: ${POSTGRES_DB:-aim_voto}
+    POSTGRES_USER: ${POSTGRES_USER:-aim_voto}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Esegui python3 scripts/setup_local.py}
+    EMAIL_HOST: mailpit
+    EMAIL_PORT: 1025
+    DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-aim-voto@example.invalid}
+    SUPPORT_EMAIL: ${SUPPORT_EMAIL:-assistenza@example.invalid}
+    MAIL_SEND_PER_MINUTE: ${MAIL_SEND_PER_MINUTE:-30}
+    MAIL_MAX_ATTEMPTS: ${MAIL_MAX_ATTEMPTS:-3}
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  db:
+    image: postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aim_voto}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Esegui python3 scripts/setup_local.py}
+      AIM_DB_USER: ${POSTGRES_USER:-aim_voto}
+      AIM_DB_PASSWORD: ${POSTGRES_PASSWORD:?Esegui python3 scripts/setup_local.py}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/docker/postgres-init.sh:/docker-entrypoint-initdb.d/01-app.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d \"$$POSTGRES_DB\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  mailpit:
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
+    ports:
+      - "127.0.0.1:${AIM_MAILPIT_PORT:-8025}:8025"
+    environment:
+      MP_MAX_MESSAGES: 5000
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  init:
+    <<: *app
+    command: ["sh", "-ec", "python manage.py migrate --noinput && python manage.py collectstatic --noinput"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - static_assets:/app/staticfiles
+  web:
+    <<: *app
+    ports:
+      - "127.0.0.1:${AIM_WEB_PORT:-8000}:8000"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - static_assets:/app/staticfiles:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/', timeout=3).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  worker:
+    <<: *app
+    command: ["python", "manage.py", "run_worker"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
+    restart: unless-stopped
+  test:
+    profiles: ["test"]
+    image: aim-voto-local-test
+    build:
+      context: .
+      target: test
+    environment:
+      <<: *app-environment
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Esegui python3 scripts/setup_local.py}
+      MAILPIT_API_URL: http://mailpit:8025
+    command:
+      - sh
+      - -ec
+      - |
+        python -m ruff check --no-cache .
+        python manage.py check
+        python manage.py makemigrations --check --dry-run
+        python manage.py test
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  static_assets:
