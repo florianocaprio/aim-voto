@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -51,6 +52,60 @@ class Election(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class AssemblyQuorum(models.Model):
+    class Basis(models.TextChoices):
+        PRESENCES = "presences", "Presenze confermate"
+        WITH_PROXY = (
+            "with_proxy",
+            "Presenze confermate e deleganti con scheda acquisita",
+        )
+
+    class Comparison(models.TextChoices):
+        AT_LEAST = "at_least", "Almeno"
+        GREATER = "greater", "Più di"
+
+    election = models.OneToOneField(Election, on_delete=models.CASCADE)
+    basis = models.CharField(max_length=12, choices=Basis)
+    comparison = models.CharField(
+        max_length=8, choices=Comparison, default=Comparison.AT_LEAST
+    )
+    threshold_numerator = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    threshold_denominator = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)], null=True, blank=True
+    )
+    reference = models.CharField(max_length=300, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL
+    )
+
+    class Meta:
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=models.Q(threshold_numerator__gte=1)
+                & (
+                    models.Q(threshold_denominator__isnull=True)
+                    | models.Q(
+                        threshold_denominator__gte=models.F("threshold_numerator")
+                    )
+                ),
+                name="assembly_quorum_valid_threshold",
+            ),
+        ]
+
+    def minimum_count(self, eligible):
+        # A fractional threshold uses integer arithmetic, including at the exact boundary.
+        denominator = self.threshold_denominator or 1
+        scaled = (
+            self.threshold_numerator * eligible
+            if self.threshold_denominator
+            else self.threshold_numerator
+        )
+        if self.comparison == self.Comparison.GREATER:
+            return scaled // denominator + 1
+        return (scaled + denominator - 1) // denominator
 
 
 class Question(models.Model):

@@ -64,6 +64,7 @@
   <div class="actions">
   {% if election.status == "draft" %}
     <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri ora</a>
+    <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Quorum assembleare</a>
     {% if election.opens_at %}<a class="button secondary" href="{% url 'voting:transition' election.pk 'programma' %}">Programma l’apertura</a>{% endif %}
     <a class="button danger" href="{% url 'voting:transition' election.pk 'elimina' %}">Elimina bozza</a>
   {% elif election.status == "scheduled" %}
@@ -73,6 +74,7 @@
     <a class="button" href="{% url 'voting:transition' election.pk 'chiudi' %}">Chiudi la consultazione</a>
   {% elif election.status == "closed" %}
     <a class="button" href="{% url 'voting:transition' election.pk 'scrutina' %}">Pubblica lo scrutinio</a>
+    <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Quorum assembleare</a>
   {% elif election.status == "tallied" %}
     <a class="button" href="{% url 'voting:results' election.pk %}">Risultati e report</a>
   {% endif %}

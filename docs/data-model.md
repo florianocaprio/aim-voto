@@ -5,6 +5,7 @@
 | `Member` | Anagrafica preesistente, conservata per i riferimenti storici. |
 | `ImportBatch` | Consultazione, righe caricate temporaneamente, mappatura, autore, scadenza e riepilogo. La conferma svuota i dati di anteprima. |
 | `Election` | Titolo, descrizione, calendario, modalità palese vincolata, stato, regola di sostituzione e intervallo dei solleciti. |
+| `AssemblyQuorum` | Impostazione facoltativa per consultazione. Registra criterio di conteggio, confronto, soglia assoluta o frazionaria, eventuale riferimento statutario, autore e data dell’ultimo salvataggio. |
 | `Question`, `Choice` | Quesiti e relative opzioni. Il tipo determina il massimo di preferenze. |
 | `ElectionDocument` | PDF privato associato alla consultazione, servito come allegato dopo verifica dell'autorizzazione. |
 | `ElectionVoter` | Una posizione autonoma per coppia consultazione-matricola. Conserva generalità, sezione e recapiti usati nella votazione. Le posizioni preesistenti mantengono il riferimento facoltativo a `Member`. |
