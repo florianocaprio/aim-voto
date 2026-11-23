@@ -9,7 +9,9 @@
 | `ElectionDocument` | PDF privato associato alla consultazione, servito come allegato dopo verifica dell'autorizzazione. |
 | `ElectionVoter` | Una posizione per coppia socio-consultazione. Fotografa ID esterno, generalità, sezione e recapiti. Le correzioni dei recapiti hanno un flusso dedicato. |
 | `VotingCredential` | Una credenziale attiva per posizione. Il digest SHA-256 è univoco e indicizzato. Il valore cifrato Fernet consente il recupero autorizzato. La versione invalida le sessioni precedenti dopo una revoca. |
-| `NamedBallot` | Una scheda corrente per `ElectionVoter`, con risposte, revisione e istante di acquisizione. La revisione aumenta a ogni sostituzione valida. |
+| `VoterPresence` | Una conferma con data e ora per posizione elettorale. |
+| `Delegation` | Delegante, delegato, data e stato della richiesta. Vincoli per persone distinte e una sola richiesta attiva per delegante. Servizi e lock verificano la platea comune e la capienza del delegato. |
+| `NamedBallot` | Una scheda corrente per `ElectionVoter`, con risposte, revisione e istante di acquisizione. La revisione aumenta a ogni sostituzione valida. Per una scheda per delega, `cast_by` registra la posizione del delegato. |
 | `SubmissionReceipt` | ID della richiesta, impronta HMAC, revisione e istante. Vincoli univoci per posizione/richiesta e posizione/revisione. Le ricevute delle revisioni precedenti non conservano le scelte in chiaro. |
 | `ReminderCampaign` | Campagna per invito, sollecito o reinvio, con autore, consultazione, modello, avanzamento e date di conferma e annullamento. |
 | `EmailDelivery` | Posizione nella selezione di una campagna, stato, tentativi, motivo ed esito. Vincoli per coppia campagna-elettore e per sollecito pendente sulla stessa posizione. |

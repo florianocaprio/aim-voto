@@ -38,6 +38,14 @@ In **Elettori della votazione**, cerca per nome, ID socio, email o cellulare e a
 
 Il link è una credenziale personale. Chi è autorizzato a copiarlo può tecnicamente usarlo per accedere come il socio. Copie, revoche e correzioni sono operazioni tracciate. [Modello di fiducia](security-and-trust-model.md).
 
+## Presenze e deleghe
+
+1. Nella bozza, seleziona **Consenti il voto per delega verificata dallo staff** se la consultazione prevede deleghe. La regola resta fissata all’apertura. Le consultazioni esistenti mantengono le deleghe disabilitate.
+2. Dal link personale, il socio apre **Presenza e deleghe** e sceglie **Confermo la mia presenza**. L’accesso alla scheda, la conferma della presenza e l’acquisizione del voto sono tre azioni distinte. Per una consultazione aperta o già conclusa, lo staff trova l’elenco e **Scarica presenze CSV** nella sezione **Presenze e deleghe**.
+3. Il socio che delega inserisce l’**ID socio** di un altro avente diritto della stessa consultazione e preme **Presenta la delega per la verifica**. Può presentare una sola richiesta attiva. Lo staff verifica le identità, seleziona **Approva** oppure **Rifiuta** e controlla l’esito.
+4. La platea congelata all’apertura determina il massimo di deleghe approvate per ciascun delegato. Fino a 500 aventi diritto inclusi il massimo è 3. Da 501 in poi il massimo è 5. Il voto personale del delegato conta separatamente.
+5. Il delegato apre la propria sessione con il suo link personale e seleziona **Apri scheda in delega**. La scheda indica il rappresentato prima della conferma. La stessa posizione accetta una sola scheda valida. Una delega può essere revocata prima che il delegato acquisisca la prima scheda per quella posizione. Fino all’approvazione il delegante può votare direttamente.
+
 ## Inviare un sollecito ai non votanti
 
 1. Con la consultazione aperta, seleziona **Invia sollecito ai non votanti**. Mantieni **Tutte le sezioni** oppure restringi a una sezione della platea. Sono eleggibili i soci senza scheda acquisita. Una scheda bianca, un’astensione confermata e una scheda acquisita che il socio sta sostituendo valgono già come voto.

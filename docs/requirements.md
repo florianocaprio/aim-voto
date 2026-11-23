@@ -15,6 +15,8 @@ Il primo rilascio implementa il **voto palese e nominativo**. La scheda è colle
 | Assistenza | Ricerca per nome, ID, email o cellulare. Copia del link corrente per un invio manuale, reinvio email individuale, correzione motivata dei recapiti e revoca con rigenerazione. |
 | Comunicazioni | Inviti avviati dopo l’apertura, solleciti collettivi ai non votanti con anteprima e conferma, reinvio individuale. Un messaggio per posizione elettorale, coda persistente, controllo della frequenza ed esiti registrati. |
 | Partecipazione | Conteggi degli aventi diritto e dei votanti unici, affluenza, scadenza e indicatori SMTP. Ogni scheda acquisita, anche bianca, vale come partecipazione alla consultazione. |
+| Presenze | Conferma esplicita del socio durante l’apertura. Elenco e CSV amministrativi separati dal voto. |
+| Deleghe | Presentazione online dal socio, verifica dello staff, revoca fino alla prima scheda per delega e blocco del doppio esercizio. Ciascun delegato può esercitare al massimo tre deleghe fino a 500 aventi diritto inclusi e cinque da 501. |
 | Scrutinio | Risultati aggregati dopo chiusura e pubblicazione amministrativa dello scrutinio. CSV dei risultati, CSV separato di partecipazione e riepilogo PDF non firmato a supporto del verbale. |
 | Esercizio | Ambiente locale avviabile con Docker Compose, PostgreSQL, worker persistente e Mailpit. Accesso amministrativo con autenticazione Django e MFA TOTP configurabile. Migrazioni versionate e CI con controlli statici, test e scansione dei segreti. |
 
@@ -46,4 +48,4 @@ Lo scenario dimostrativo importa tre soci sintetici, apre una consultazione, ver
 
 Le verifiche di concorrenza e scadenza si svolgono su PostgreSQL. La platea operativa attesa è nell’ordine di 700–1.500 soci, con un limite applicativo di 2.000 elettori per consultazione. Una prova di carico con tempi e tassi di errore misurati è un’attività distinta dalla verifica di quel limite.
 
-Per il pilota restano da completare configurazione operativa, prova di recupero, verifica dei recapiti, revisione delle regole assembleari e misure organizzative. Le deleghe, gli osservatori, l’anagrafica esterna e un motore di voto segreto verificabile appartengono alla roadmap. [Modello di fiducia](security-and-trust-model.md), [backup e ripristino](backup-restore.md), [guida amministrativa](admin-guide.md).
+Per il pilota restano da completare configurazione operativa, prova di recupero, verifica dei recapiti, revisione delle regole assembleari e misure organizzative. Gli osservatori, l’anagrafica esterna e un motore di voto segreto verificabile appartengono alla roadmap. [Modello di fiducia](security-and-trust-model.md), [backup e ripristino](backup-restore.md), [guida amministrativa](admin-guide.md).

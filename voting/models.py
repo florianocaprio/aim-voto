@@ -28,6 +28,7 @@ class Election(models.Model):
     opened_at = models.DateTimeField(null=True, editable=False)
     ended_at = models.DateTimeField(null=True, editable=False)
     allow_replacement = models.BooleanField(default=True)
+    allow_delegations = models.BooleanField(default=False)
     reminder_interval_hours = models.PositiveSmallIntegerField(default=24)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -123,6 +124,47 @@ class NamedBallot(models.Model):
     answers = models.JSONField(default=dict)
     revision = models.PositiveIntegerField(default=1)
     submitted_at = models.DateTimeField(default=timezone.now)
+    cast_by = models.ForeignKey(
+        ElectionVoter, null=True, on_delete=models.PROTECT, related_name="proxy_ballots"
+    )
+
+
+class VoterPresence(models.Model):
+    voter = models.OneToOneField(
+        ElectionVoter, on_delete=models.CASCADE, related_name="presence"
+    )
+    confirmed_at = models.DateTimeField()
+
+
+class Delegation(models.Model):
+    class State(models.TextChoices):
+        PENDING = "pending", "Da verificare"
+        APPROVED = "approved", "Approvata"
+        REJECTED = "rejected", "Rifiutata"
+        REVOKED = "revoked", "Revocata"
+
+    grantor = models.ForeignKey(
+        ElectionVoter, on_delete=models.CASCADE, related_name="delegations_given"
+    )
+    delegate = models.ForeignKey(
+        ElectionVoter, on_delete=models.CASCADE, related_name="delegations_received"
+    )
+    state = models.CharField(max_length=8, choices=State, default=State.PENDING)
+    requested_at = models.DateTimeField()
+
+    class Meta:
+        ordering: ClassVar = ["-requested_at", "-pk"]
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=~models.Q(grantor=models.F("delegate")),
+                name="delegation_distinct_voters",
+            ),
+            models.UniqueConstraint(
+                fields=["grantor"],
+                condition=models.Q(state__in=["pending", "approved"]),
+                name="delegation_one_active_per_grantor",
+            ),
+        ]
 
 
 class SubmissionReceipt(models.Model):

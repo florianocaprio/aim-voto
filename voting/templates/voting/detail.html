@@ -45,6 +45,7 @@
     <div class="actions">
       {% if election.status == "draft" %}<a class="button" href="{% url 'voting:electorate' election.pk %}">Componi la platea</a>{% endif %}
       <a class="button secondary" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
+      {% if election.opened_at %}<a class="button secondary" href="{% url 'voting:manage_assembly' election.pk %}">Presenze e deleghe</a>{% endif %}
       {% if is_open %}
         <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Prepara inviti email</a>
         <a class="button" href="{% url 'mailings:remind' election.pk %}">Invia sollecito ai non votanti</a>

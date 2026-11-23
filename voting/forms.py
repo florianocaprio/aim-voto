@@ -43,12 +43,14 @@ class ElectionForm(forms.ModelForm):
             "opens_at",
             "closes_at",
             "allow_replacement",
+            "allow_delegations",
         ]
         labels: ClassVar = {
             "title": "Titolo",
             "description": "Descrizione",
             "mode": "Modalità",
             "allow_replacement": "Consenti la sostituzione del voto",
+            "allow_delegations": "Consenti il voto per delega verificata dallo staff",
         }
         widgets: ClassVar = {"description": forms.Textarea(attrs={"rows": 4})}
 

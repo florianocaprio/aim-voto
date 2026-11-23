@@ -9,6 +9,10 @@
     <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
   </div>
   <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
+  {% if voter %}
+    <div><a class="button secondary" href="{% url 'voting:assembly' %}">{% if election.allow_delegations %}Presenza e deleghe{% else %}Conferma presenza{% endif %}</a></div>
+  {% endif %}
+  {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata.</p>{% endif %}
   {% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}
   {% if documents %}
     <section class="card stack"><h2>Documenti informativi</h2>
@@ -16,7 +20,9 @@
     </section>
   {% endif %}
   {% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
-  {% if record and not editing %}
+  {% if delegated_out %}
+    <p class="alert">Il voto per questa posizione spetta al delegato approvato dallo staff.</p>
+  {% elif record and not editing or record and not election.allow_replacement %}
     <section class="card stack"><h2>Voto registrato</h2>
       <p>Ultima acquisizione {{ record.submitted_at|date:"d/m/Y H:i:s T" }}.</p>
       {% if election.allow_replacement %}<div><a class="button" href="?modifica=1">Sostituisci il voto</a></div>{% endif %}

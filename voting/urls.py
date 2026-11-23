@@ -1,17 +1,41 @@
 from django.urls import path
 
-from . import views
+from . import assembly_views, views
 
 app_name = "voting"
 urlpatterns = [
     path("", views.home, name="home"),
     path("accedi/", views.access, name="access"),
     path("scheda/", views.ballot, name="ballot"),
+    path("scheda/presenza-e-deleghe/", assembly_views.voter_assembly, name="assembly"),
+    path(
+        "scheda/deleghe/<int:delegation_pk>/", views.proxy_ballot, name="proxy_ballot"
+    ),
+    path(
+        "scheda/deleghe/<int:delegation_pk>/revoca/",
+        assembly_views.voter_revoke,
+        name="voter_revoke",
+    ),
     path("scheda/conferma/", views.submit, name="submit"),
     path("scheda/documenti/<int:pk>/", views.voter_document, name="voter_document"),
     path("gestione/", views.dashboard, name="dashboard"),
     path("gestione/nuova/", views.election_edit, name="create"),
     path("gestione/<int:pk>/", views.detail, name="detail"),
+    path(
+        "gestione/<int:pk>/presenze-e-deleghe/",
+        assembly_views.manage_assembly,
+        name="manage_assembly",
+    ),
+    path(
+        "gestione/<int:pk>/presenze.csv",
+        assembly_views.presence_csv,
+        name="presence_csv",
+    ),
+    path(
+        "gestione/<int:pk>/deleghe/<int:delegation_pk>/<slug:action>/",
+        assembly_views.staff_decision,
+        name="staff_delegation",
+    ),
     path("gestione/<int:pk>/modifica/", views.election_edit, name="edit"),
     path("gestione/<int:pk>/quesiti/", views.question_edit, name="question_add"),
     path(
