@@ -26,7 +26,7 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri ora** oppure **Programma l’apertura** e conferma l’operazione. Dallo stato programmato puoi tornare in bozza per fare modifiche. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale.
 5. In bozza o con apertura programmata, usa **Anteprima email di invito** per modificare oggetto e messaggio. Premi **Salva modello** per ritrovare il testo quando la consultazione apre. Durante l’apertura, scegli **Prepara inviti email**, verifica i destinatari e conferma l’accodamento.
 
-Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega. La sostituzione è disponibile nel palese e il voto segreto è definitivo dalla conferma. All’apertura si congelano quesiti, opzioni, modalità e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
+Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega e la sostituzione del voto. Con **Consenti la sostituzione del voto** attiva, fa fede l’ultima scheda confermata prima della chiusura. Con la casella vuota, la prima conferma rende il voto definitivo. Nel segreto, per sostituire una scheda occorre compilare di nuovo i quesiti. All’apertura si congelano quesiti, opzioni, modalità e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 
 Per ogni mozione, scegli **Favorevole / Contrario / Astenuto** per richiedere una risposta. Scegli **Favorevole / Contrario / Astenuto / Senza risposta** per consentire di saltare quel quesito. Lo scrutinio conta **Astenuto** fra le schede con risposta e riporta le omissioni a parte, anche quando la stessa scheda contiene risposte ad altri quesiti.
 
@@ -35,6 +35,8 @@ Per consultare lo storico apri la votazione conclusa da **Consultazioni** e sceg
 ## Assistere un elettore
 
 In **Elettori della votazione**, cerca per nome, matricola, email o cellulare e apri il nome del socio. Puoi aprire la stessa scheda dal nome di un destinatario nello **Storico invii**. La scheda mostra i recapiti, l’ultimo invito o reinvio e la partecipazione.
+
+Ogni invito apre la posizione identificata dal suo link. Nello stesso profilo del browser il nuovo accesso attiva la sessione del socio indicato e blocca i moduli lasciati aperti con la sessione precedente. Per tornare alla scheda precedente riapri il link personale del socio e verifica la matricola.
 
 - **Copia link personale** recupera durante l’apertura il collegamento attivo usato dalla coda di invio. Se il browser blocca la copia automatica, copia il valore dal campo selezionato.
 - **Copia messaggio e apri WhatsApp Web** usa la sessione WhatsApp del browser e il cellulare della scheda elettore. Inserisci i numeri esteri con il prefisso internazionale; il sistema aggiunge `+39` ai cellulari italiani senza prefisso. Il messaggio rimane negli appunti. Incollalo nella chat, verifica il destinatario e premi **Invia**. Se il browser blocca l’apertura automatica, usa **Apri chat WhatsApp Web**. I link di un’installazione su `localhost` si aprono solo sul computer che la esegue.

@@ -9,6 +9,7 @@
     <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
   </div>
   {% if election.is_secret %}
+    {% if voter and not delegation %}<p>Accesso di <strong>{{ voter.first_name }} {{ voter.last_name }}</strong> · Matricola {{ voter.external_id }}</p>{% endif %}
     <div class="alert">Le scelte sono conservate in una scheda cifrata senza nominativo.</div>
   {% else %}
     <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
@@ -16,7 +17,7 @@
   {% if voter and not scoped_link and election.allow_delegations %}
     <div><a class="button secondary" href="{% url 'voting:assembly' %}">Presenza e deleghe</a></div>
   {% endif %}
-  {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata.</p>{% endif %}
+  {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata. Matricola {{ voter.external_id }}.</p>{% endif %}
   {% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}
   {% if documents %}
     <section class="card stack"><h2>Documenti informativi</h2>
@@ -44,7 +45,10 @@
       {% if election.allow_replacement %}<div><a class="button" href="?modifica=1">Sostituisci il voto</a></div>{% endif %}
     </section>
   {% else %}
-    {% if record %}<p>La scheda precedente resta valida fino alla registrazione di una nuova conferma.</p>{% endif %}
+    {% if record %}
+      {% if election.is_secret %}<p>Compila di nuovo i quesiti a cui vuoi rispondere. La conferma sostituirà per intero la scheda precedente.</p>
+      {% else %}<p>La scheda precedente resta valida fino alla registrazione di una nuova conferma.</p>{% endif %}
+    {% endif %}
     {% if not preview %}
       <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="revision" value="{{ record.revision|default:0 }}">
     {% else %}

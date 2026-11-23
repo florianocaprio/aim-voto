@@ -4,7 +4,7 @@ from django.urls import reverse
 
 from .models import Delegation
 
-SESSION_KEY = "proxy_access"
+SESSION_KEY = "proxy_access_v2"
 TOKEN_PREFIX = "delega:"
 TOKEN_SALT = "aim-voto.proxy-access"
 

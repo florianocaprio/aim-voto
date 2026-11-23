@@ -1,5 +1,6 @@
 import json
 from secrets import token_bytes
+from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -23,9 +24,29 @@ def encode(answers, is_proxy):
     return json.dumps([answers, is_proxy], separators=(",", ":")).encode("ascii")
 
 
+def revision_id(election_id, voter_id, revision):
+    digest = salted_hmac(
+        "aim-voto.secret-ballot.revision.v1",
+        f"{election_id}:{voter_id}:{revision}",
+        algorithm="sha256",
+    ).digest()
+    return UUID(bytes=digest[:16], version=4)
+
+
 @sensitive_variables()
-def store(election, questions, answers, is_proxy):
+def store(election, questions, answers, *, voter_id, revision, is_proxy):
+    # Called in the same locked transaction that commits the participation receipt.
     ballot = SecretBallot(election=election)
+    if election.allow_replacement:
+        ballot.pk = revision_id(election.pk, voter_id, revision)
+        if revision > 1:
+            deleted, _ = SecretBallot.objects.filter(
+                election=election, pk=revision_id(election.pk, voter_id, revision - 1)
+            ).delete()
+            if deleted != 1:
+                raise ValidationError(
+                    "La scheda precedente non è disponibile. Contatta l’assistenza."
+                )
     # Use the same envelope length even for blank or partially completed ballots.
     all_choices = {
         str(question.pk): [choice.pk for choice in question.choices.all()]

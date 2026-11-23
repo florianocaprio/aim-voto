@@ -344,7 +344,7 @@ class VotingViewsTests(TestCase):
             if kind == "report-pdf":
                 self.assertTrue(data.startswith(b"%PDF-"))
 
-    def test_secret_selectable_and_forces_a_final_vote(self):
+    def test_replacement_setting_is_saved_in_both_voting_modes(self):
         new_url = reverse("voting:create")
         form = self.admin.get(new_url)
         self.assertContains(form, "Modalità di voto")
@@ -354,21 +354,21 @@ class VotingViewsTests(TestCase):
             html=True,
         )
         self.assertNotContains(form, "Voto segreto · In preparazione")
-        response = self.admin.post(
-            new_url,
-            {
-                "title": "Titolo",
-                "mode": "secret",
-                "closes_at": "2035-01-01T10:00",
-                "allow_replacement": "on",
-            },
-        )
-        self.assertEqual(response.status_code, 302)
-        secret = Election.objects.get(title="Titolo")
-        self.assertEqual(secret.mode, Election.Mode.SECRET)
-        self.assertFalse(secret.allow_replacement)
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            Election.objects.filter(pk=secret.pk).update(allow_replacement=True)
+        for mode in Election.Mode:
+            for replacement in (True, False):
+                with self.subTest(mode=mode, replacement=replacement):
+                    title = f"Colloquio {mode} {replacement}"
+                    fields = {
+                        "title": title,
+                        "mode": mode,
+                        "closes_at": "2035-01-01T10:00",
+                    }
+                    if replacement:
+                        fields["allow_replacement"] = "on"
+                    self.assertEqual(self.admin.post(new_url, fields).status_code, 302)
+                    election = Election.objects.get(title=title)
+                    self.assertEqual(election.mode, mode)
+                    self.assertEqual(election.allow_replacement, replacement)
 
     def test_deadline_without_scheduler_protects_previous_ballot(self):
         redeem(self.client, self.voter)

@@ -1,6 +1,7 @@
 import json
 from uuid import uuid4
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -8,7 +9,7 @@ from django.utils.crypto import salted_hmac
 
 from mailings.campaigns import recipients
 from mailings.models import MailKind
-from voting import assembly_report, reports, services
+from voting import assembly_report, proxy_access, reports, services
 from voting.models import (
     Delegation,
     Election,
@@ -169,3 +170,159 @@ class SecretVoteTests(TestCase):
         self.election.refresh_from_db()
         self.assertEqual(self.election.status, Election.Status.CLOSED)
         self.assertFalse(self.election.campaigns.filter(kind=MailKind.RESULTS).exists())
+
+    def test_direct_and_proxy_replacement_count_only_the_current_secret_ballot(self):
+        election, question, options = election_with_motion(
+            self.staff, title="Sostituzioni segrete"
+        )
+        election.mode = Election.Mode.SECRET
+        election.allow_replacement = True
+        election.allow_delegations = True
+        election.save()
+        voter, delegate, grantor = open_election(
+            election, [self.first.member, self.delegate.member, self.grantor.member]
+        )
+        delegation = Delegation.objects.create(
+            delegate=delegate,
+            grantor=grantor,
+            state=Delegation.State.APPROVED,
+            requested_at=services.database_now(),
+        )
+        personal = Client()
+        proxy = Client()
+        redeem(personal, voter)
+        token = proxy_access.link(delegation, delegate.credential).split("#", 1)[1]
+        proxy_url = reverse("voting:proxy_ballot", args=[delegation.pk])
+        access = proxy.post(reverse("voting:access"), {"token": token})
+        self.assertEqual(access.json()["ballot_url"], proxy_url)
+        for client, ballot_url, choice in (
+            (personal, reverse("voting:ballot"), options[1]),
+            (proxy, proxy_url, options[2]),
+        ):
+            previews = []
+            for revision, option in enumerate((options[0], choice)):
+                pending = client.post(
+                    ballot_url, {"revision": revision, f"q{question.pk}": option.pk}
+                ).context["payload"]
+                previews.append(pending)
+                acquired = client.post(self.submit_url, {"payload": pending})
+                self.assertContains(acquired, f"Versione {revision + 1}")
+                self.assertContains(client.get(ballot_url), "Sostituisci il voto")
+                editing = client.get(ballot_url, {"modifica": 1})
+                self.assertContains(editing, "Compila di nuovo i quesiti")
+                self.assertEqual(editing.context["questions"][0][1], set())
+                urn = set(
+                    SecretBallot.objects.filter(election=election).values_list(
+                        "pk", flat=True
+                    )
+                )
+                if revision == 0:
+                    first_urn = urn
+                else:
+                    self.assertEqual(len(urn), len(first_urn))
+                    self.assertEqual(len(first_urn - urn), 1)
+            retry = client.post(self.submit_url, {"payload": previews[0]})
+            self.assertContains(retry, "Scheda sostituita da un invio successivo")
+
+        pending = review(personal, 2, question, options[0]).context["payload"]
+        for action in ("chiudi", "scrutina"):
+            response = self.admin.post(
+                reverse("voting:transition", args=[election.pk, action]),
+                {"confirm": "yes"},
+            )
+            self.assertEqual(response.status_code, 302)
+        self.assertContains(
+            personal.post(self.submit_url, {"payload": pending}),
+            "Votazione chiusa",
+            status_code=409,
+        )
+        election.refresh_from_db()
+        self.assertFalse(NamedBallot.objects.filter(voter__election=election).exists())
+        self.assertEqual(
+            SubmissionReceipt.objects.filter(voter__election=election).count(), 4
+        )
+        self.assertEqual(
+            list(election.participation_records().values_list("revision", flat=True)),
+            [2, 2],
+        )
+        self.assertEqual(assembly_report.participation(election)["represented"], 1)
+        data = reports.tally(election)
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(
+            dict(data["rows"][0]["choices"]),
+            {"Favorevole": 0, "Contrario": 1, "Astenuto": 1},
+        )
+
+    def test_secret_links_identify_distinct_voters_and_invalidate_stale_forms(self):
+        client = Client(enforce_csrf_checks=True)
+        access = reverse("voting:access")
+        ballot = reverse("voting:ballot")
+        client.get(access)
+        links = [
+            self.admin.post(
+                reverse("voting:copy_link", args=[self.election.pk, voter.pk])
+            ).json()["url"]
+            for voter in (self.first, self.delegate)
+        ]
+        self.assertTrue(links[0] != links[1])
+
+        def csrf():
+            return client.cookies[settings.CSRF_COOKIE_NAME].value
+
+        def open_link(link, voter):
+            response = client.post(
+                access, {"token": link.split("#", 1)[1], "csrfmiddlewaretoken": csrf()}
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(client.get(ballot), f"Matricola {voter.external_id}")
+
+        open_link(links[0], self.first)
+        old_token = csrf()
+        open_link(links[1], self.delegate)
+        data = {"revision": 0, f"q{self.question.pk}": self.options[0].pk}
+        rejected = client.post(ballot, data | {"csrfmiddlewaretoken": old_token})
+        self.assertContains(rejected, "riapri il link personale", status_code=403)
+        self.assertFalse(SubmissionReceipt.objects.exists())
+        for link, voter in zip(
+            reversed(links), (self.delegate, self.first), strict=True
+        ):
+            open_link(link, voter)
+            preview = client.post(ballot, data | {"csrfmiddlewaretoken": csrf()})
+            self.assertContains(preview, f"Matricola {voter.external_id}")
+            receipt = client.post(
+                self.submit_url,
+                {"payload": preview.context["payload"], "csrfmiddlewaretoken": csrf()},
+            )
+            self.assertContains(receipt, f"Matricola {voter.external_id}")
+            self.assertEqual(receipt.context["receipt"].voter_id, voter.pk)
+        self.assertEqual(SubmissionReceipt.objects.count(), 2)
+
+    def test_forms_open_before_csrf_rotation_require_reopening_the_link(self):
+        delegation = Delegation.objects.create(
+            grantor=self.grantor,
+            delegate=self.delegate,
+            state=Delegation.State.APPROVED,
+            requested_at=services.database_now(),
+        )
+        client = Client()
+        session = client.session
+        session["vote_access"] = [
+            self.first.pk,
+            self.election.pk,
+            self.first.credential.version,
+        ]
+        session["proxy_access"] = [
+            self.delegate.pk,
+            self.election.pk,
+            self.delegate.credential.version,
+            delegation.pk,
+        ]
+        session.save()
+        for target in (
+            reverse("voting:ballot"),
+            reverse("voting:proxy_ballot", args=[delegation.pk]),
+        ):
+            with self.subTest(target=target):
+                response = client.post(target, {"revision": 0})
+                self.assertEqual(response.status_code, 403)
+        self.assertFalse(SubmissionReceipt.objects.exists())

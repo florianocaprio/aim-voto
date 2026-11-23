@@ -6,6 +6,8 @@ Il sistema associa la scheda corrente alla posizione elettorale. Il link persona
 
 Aprire il link avvia l'accesso e non costituisce voto o presenza assembleare. Il frammento dell'URL contiene la credenziale. Il browser la rimuove dalla barra degli indirizzi prima di inviarla via POST a Django, con CSRF. La sessione Django sul server resta legata alla posizione e alla versione della credenziale. La rigenerazione revoca il link e la versione precedente della sessione per nuovi invii, conservando la scheda già registrata.
 
+Ogni nuovo accesso elettorale valido rinnova la sessione e il token CSRF. I moduli rimasti aperti nel browser con il token precedente devono essere riaperti dal link personale.
+
 I link risultano visibili nella casella di prova di Mailpit. Proteggi il browser, la posta e la chat WhatsApp usata per l'invio manuale. Per un invio assistito verifica identità e recapito prima di copiare un link, motiva la revoca quando è necessario sostituirlo e riferisci eventuali anomalie al responsabile tecnico.
 
 ## Voto segreto

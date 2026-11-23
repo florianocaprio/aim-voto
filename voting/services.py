@@ -342,7 +342,14 @@ def record_ballot(
         raise ValidationError("Votazione chiusa. La scheda non è stata registrata.")
     next_revision = revision + 1
     if election.is_secret:
-        secret_ballots.store(election, questions, answers, cast_by_id is not None)
+        secret_ballots.store(
+            election,
+            questions,
+            answers,
+            voter_id=voter_id,
+            revision=next_revision,
+            is_proxy=cast_by_id is not None,
+        )
     else:
         NamedBallot.objects.update_or_create(
             voter_id=voter_id,

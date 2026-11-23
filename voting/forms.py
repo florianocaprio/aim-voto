@@ -69,14 +69,8 @@ class ElectionForm(forms.ModelForm):
                 "Nel voto palese la scheda è associata al socio. Nel voto segreto "
                 "si registra la partecipazione e si pubblicano solo risultati aggregati."
             ),
-            "allow_replacement": "Disponibile per il voto palese. Il voto segreto è definitivo.",
+            "allow_replacement": "Seleziona per consentire modifiche fino alla chiusura. Con la casella vuota, il voto è definitivo dopo la conferma.",
         }
-
-    def clean(self):
-        data = super().clean()
-        if data.get("mode") == Election.Mode.SECRET:
-            data["allow_replacement"] = False
-        return data
 
     def clean_closes_at(self):
         value = self.cleaned_data["closes_at"]

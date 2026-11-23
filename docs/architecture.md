@@ -31,6 +31,8 @@ La sessione del delegato può confermare la scheda della posizione rappresentata
 
 ## Voto segreto
 
-Il server salva in una transazione la ricevuta di partecipazione e la scheda cifrata. La ricevuta identifica la posizione elettorale e, per una delega, chi ha votato per suo conto. La scheda cifrata ha UUID casuale e come unico riferimento la consultazione. La sua lunghezza è uniforme per tutte le schede della stessa votazione. La ricevuta e l’audit sono indipendenti dalle preferenze.
+Il server salva in una transazione la ricevuta di partecipazione e la scheda cifrata. La ricevuta identifica la posizione elettorale e, per una delega, chi ha votato per suo conto. La scheda cifrata contiene un UUID e come unico riferimento la consultazione. La sua lunghezza è uniforme per tutte le schede della stessa votazione. La ricevuta e l’audit sono indipendenti dalle preferenze.
+
+Quando la sostituzione è attiva, il server calcola l’UUID di ogni revisione con HMAC a chiave applicativa. Lo stesso lock della conferma protegge la sostituzione del cifrato precedente e l’inserimento della nuova ricevuta. L’affluenza usa l’ultima ricevuta per posizione, lo scrutinio usa la scheda cifrata corrente.
 
 Dopo la chiusura, lo scrutinio decifra le schede in memoria e confronta il numero di schede e quello delle deleghe esercitate con le ricevute prima di pubblicare. I report del voto segreto usano il totale per opzione e l’elenco degli aventi diritto. Nei report del voto palese le preferenze della scheda corrente sono attribuite all’elettore rappresentato, con il nome del delegato quando presente.

@@ -48,10 +48,6 @@ class Election(models.Model):
                 name="election_valid_mode",
             ),
             models.CheckConstraint(
-                condition=~models.Q(mode="secret", allow_replacement=True),
-                name="secret_vote_is_final",
-            ),
-            models.CheckConstraint(
                 condition=models.Q(opens_at__isnull=True)
                 | models.Q(closes_at__gt=models.F("opens_at")),
                 name="election_valid_window",
@@ -67,8 +63,13 @@ class Election(models.Model):
 
     def participation_records(self):
         if self.is_secret:
-            return SubmissionReceipt.objects.filter(voter__election=self).annotate(
-                submitted_at=models.F("accepted_at")
+            latest = SubmissionReceipt.objects.filter(
+                voter_id=models.OuterRef("voter_id")
+            ).order_by("-revision")
+            return SubmissionReceipt.objects.filter(
+                voter__election=self, pk=models.Subquery(latest.values("pk")[:1])
+            ).annotate(
+                submitted_at=models.F("accepted_at"),
             )
         return NamedBallot.objects.filter(voter__election=self)
 

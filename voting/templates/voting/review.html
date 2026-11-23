@@ -5,9 +5,9 @@
   <p class="mode">Voto {{ election.get_mode_display|lower }}</p>
   <h1>Riepilogo della scheda</h1>
   <p>{{ election.title }}</p>
-  {% if delegation %}<p>Voto per {{ delegation.grantor.first_name }} {{ delegation.grantor.last_name }} con delega approvata.</p>{% endif %}
+  <p>Scheda per <strong>{{ voter.first_name }} {{ voter.last_name }}</strong> · Matricola {{ voter.external_id }}{% if delegation %} · Delega approvata{% endif %}</p>
   {% if blank %}<p class="alert">Stai per registrare una scheda bianca.</p>{% endif %}
-  {% if election.is_secret %}<p>Una volta confermato, il voto segreto è definitivo.</p>{% endif %}
+  {% if not election.allow_replacement %}<p>Una volta confermato, il voto è definitivo.</p>{% endif %}
   <dl class="card list">
     {% for question, selections in summary %}<div><dt>{{ question.text }}</dt><dd>{{ selections|join:", "|default:"Senza risposta" }}</dd></div>{% endfor %}
   </dl>

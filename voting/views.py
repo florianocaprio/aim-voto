@@ -11,6 +11,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.middleware.csrf import rotate_token
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -42,7 +43,8 @@ from .models import (
     VotingCredential,
 )
 
-SESSION_KEY = "vote_access"
+# Require a link redemption with CSRF rotation before accepting votes from older tabs.
+SESSION_KEY = "vote_access_v2"
 SUBMISSION_SALT = "aim-voto.ballot-preview"
 
 
@@ -640,6 +642,7 @@ def access(request):
                 status=404,
             )
         request.session.flush()
+        rotate_token(request)
         request.session[proxy_access.SESSION_KEY] = binding
         return JsonResponse(
             {
@@ -659,6 +662,7 @@ def access(request):
             {"error": "Il link personale non è più valido."}, status=404
         )
     request.session.flush()
+    rotate_token(request)
     request.session[SESSION_KEY] = [
         credential["voter_id"],
         credential["voter__election_id"],
@@ -701,7 +705,10 @@ def ballot_page(
     if answers is None:
         answers = (
             ballot_record.answers
-            if ballot_record and editing and voter.election.allow_replacement
+            if ballot_record
+            and editing
+            and voter.election.allow_replacement
+            and not voter.election.is_secret
             else {}
         )
     return render(
@@ -864,6 +871,7 @@ def voter_ballot(request, voter, delegation=None):
         "voting/review.html",
         {
             "election": voter.election,
+            "voter": voter,
             "summary": summary,
             "payload": payload,
             "blank": not answers,
