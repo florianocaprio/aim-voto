@@ -147,6 +147,68 @@ class VotingViewsTests(TestCase):
         audit = AuditEvent.objects.get(action="revoca_link")
         self.assertEqual(audit.details["motivo"], "esposizione")
 
+    def test_voter_detail_opens_from_name_and_requires_staff(self):
+        detail_url = reverse(
+            "voting:voter_detail", args=[self.election.pk, self.voter.pk]
+        )
+        voter_list = self.admin.get(reverse("voting:voters", args=[self.election.pk]))
+        self.assertContains(voter_list, f'href="{detail_url}"')
+        detail = self.admin.get(detail_url)
+        self.assertContains(detail, "Copia link personale")
+        self.assertContains(detail, "aggiungi un cellulare valido")
+        self.assertNotContains(detail, services.personal_url(self.voter))
+        self.assertIn("/account/accesso/", self.client.get(detail_url).url)
+        other_election, _, _ = election_with_motion(
+            self.actor, "Consultazione distinta"
+        )
+        self.assertEqual(
+            self.admin.get(
+                reverse("voting:voter_detail", args=[other_election.pk, self.voter.pk])
+            ).status_code,
+            404,
+        )
+
+    def test_whatsapp_action_copies_current_link_and_opens_phone_only_url(self):
+        self.voter.phone = "+1 (202) 555-0101"
+        self.voter.save(update_fields=["phone"])
+        args = [self.election.pk, self.voter.pk]
+        detail_url = reverse("voting:voter_detail", args=args)
+        copy_url = reverse("voting:copy_link", args=args)
+        self.assertContains(
+            self.admin.get(detail_url), "Copia messaggio e apri WhatsApp Web"
+        )
+        response = self.admin.post(copy_url, {"whatsapp_phone": "12025550101"})
+        self.assertEqual(
+            response.json(),
+            {
+                "url": services.personal_url(self.voter),
+                "whatsapp_url": "https://web.whatsapp.com/send?phone=12025550101",
+            },
+        )
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        self.assertEqual(
+            AuditEvent.objects.filter(action="copia_link", voter=self.voter).count(), 1
+        )
+
+    def test_whatsapp_rejects_missing_or_changed_phone_and_ended_election(self):
+        args = [self.election.pk, self.voter.pk]
+        copy_url = reverse("voting:copy_link", args=args)
+        data = {"whatsapp_phone": "12025550101"}
+        self.assertEqual(self.admin.post(copy_url, data).status_code, 409)
+        self.voter.phone = "001 202-555-0102"
+        self.voter.save(update_fields=["phone"])
+        self.assertEqual(self.admin.post(copy_url, data).status_code, 409)
+        Election.objects.filter(pk=self.election.pk).update(
+            status=Election.Status.CLOSED
+        )
+        data["whatsapp_phone"] = "12025550102"
+        self.assertEqual(self.admin.post(copy_url, data).status_code, 409)
+        self.assertNotContains(
+            self.admin.get(reverse("voting:voter_detail", args=args)),
+            "Copia messaggio e apri WhatsApp Web",
+        )
+        self.assertFalse(AuditEvent.objects.filter(action="copia_link").exists())
+
     def test_object_access_and_reports(self):
         other_election, _, _ = election_with_motion(
             self.actor, "Consultazione distinta"

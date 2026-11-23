@@ -34,6 +34,11 @@ urlpatterns = [
     ),
     path("gestione/<int:pk>/elettori/", views.voters, name="voters"),
     path(
+        "gestione/<int:pk>/elettori/<int:voter_pk>/",
+        views.voter_detail,
+        name="voter_detail",
+    ),
+    path(
         "gestione/<int:pk>/elettori/<int:voter_pk>/link/", views.link, name="copy_link"
     ),
     path(

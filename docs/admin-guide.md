@@ -28,9 +28,10 @@ Il voto è palese. All’apertura si congelano quesiti, opzioni, regole e platea
 
 ## Assistere un elettore
 
-In **Elettori della votazione**, cerca per nome, ID socio, email o cellulare. La riga mostra sezione, recapiti, stato dell’ultimo invio e se il sistema ha acquisito una scheda.
+In **Elettori della votazione**, cerca per nome, ID socio, email o cellulare e apri il nome del socio. Puoi aprire la stessa scheda dal nome di un destinatario nello **Storico invii**. La scheda mostra i recapiti, l’ultimo invito o reinvio e la partecipazione.
 
-- **Copia link personale** recupera il collegamento attivo, identico a quello usato dalla coda prima di un’eventuale revoca. Verifica identità e recapito prima di incollarlo nella chat privata del socio su WhatsApp. L’invio su WhatsApp è manuale. Se il browser impedisce la copia automatica, usa il campo del link che appare nella riga.
+- **Copia link personale** recupera durante l’apertura il collegamento attivo usato dalla coda di invio. Se il browser blocca la copia automatica, copia il valore dal campo selezionato.
+- **Copia messaggio e apri WhatsApp Web** usa la sessione WhatsApp del browser e il cellulare della scheda elettore. Inserisci i numeri esteri con il prefisso internazionale; il sistema aggiunge `+39` ai cellulari italiani senza prefisso. Il messaggio rimane negli appunti. Incollalo nella chat, verifica il destinatario e premi **Invia**. Se il browser blocca l’apertura automatica, usa **Apri chat WhatsApp Web**. I link di un’installazione su `localhost` si aprono solo sul computer che la esegue.
 - **Reinvia email** apre un’anteprima per il singolo socio. Verifica destinatario e testo prima di confermare. Il reinvio individuale segue la coda email e mantiene la stessa credenziale attiva.
 - **Correggi recapiti** separa la modifica della posizione elettorale dall’anagrafica generale. Verifica il nuovo recapito, seleziona la motivazione e salva. L’operazione è registrata e conserva persona e diritto di voto.
 - **Revoca e rigenera link** richiede motivazione e conferma. Il nuovo link sostituisce il precedente e invalida le sessioni collegate alla versione precedente per nuovi invii. Una scheda già acquisita rimane corrente. Copia il nuovo link o usa il reinvio individuale dopo aver verificato il recapito.

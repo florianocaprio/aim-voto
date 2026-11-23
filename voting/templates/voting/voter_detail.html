@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ voter.first_name }} {{ voter.last_name }}{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
+<div class="page-heading">
+  <div>
+    <p class="mode">{{ election.title }} · {{ election.get_status_display }}</p>
+    <h1>{{ voter.first_name }} {{ voter.last_name }}</h1>
+    <p class="muted">{{ voter.external_id }} · {{ voter.section }}</p>
+  </div>
+</div>
+<div class="sections">
+  <section class="card stack">
+    <h2>Link personale</h2>
+    {% if is_open %}
+      {% if local_link %}
+        <p class="alert">Questa installazione genera link locali. La scheda si apre solo sul computer che esegue AIM Voto.</p>
+      {% endif %}
+      {% if whatsapp_phone %}
+        <p>Chat WhatsApp al numero <strong>+{{ whatsapp_phone }}</strong>. Incolla il messaggio, verifica il destinatario e premi Invia in WhatsApp Web.</p>
+      {% else %}
+        <p>Per aprire la chat WhatsApp, aggiungi un cellulare valido con <strong>Correggi recapiti</strong>. Puoi già copiare il link.</p>
+      {% endif %}
+      <form method="post" action="{% url 'voting:copy_link' election.pk voter.pk %}" class="stack" data-copy-link>
+        {% csrf_token %}
+        <div class="actions">
+          <button class="button secondary" type="submit">Copia link personale</button>
+          {% if whatsapp_phone %}
+            <button class="button" type="submit" name="whatsapp_phone" value="{{ whatsapp_phone }}">Copia messaggio e apri WhatsApp Web</button>
+          {% endif %}
+        </div>
+        <p class="copy-result" role="status" hidden></p>
+        <textarea data-copy-value aria-label="Testo da copiare" readonly hidden rows="3"></textarea>
+        {% if whatsapp_phone %}
+          <div><a data-whatsapp-chat class="button secondary" target="_blank" rel="noopener noreferrer" hidden>Apri chat WhatsApp Web</a></div>
+        {% endif %}
+      </form>
+      <div class="actions">
+        <a href="{% url 'mailings:resend' election.pk voter.pk %}">Reinvia email</a>
+        <a href="{% url 'voting:rotate' election.pk voter.pk %}">Revoca e rigenera link</a>
+      </div>
+    {% else %}
+      <p>La copia del link e l’invio sono disponibili durante l’apertura della votazione.</p>
+    {% endif %}
+  </section>
+  <section class="card stack">
+    <h2>Recapiti e partecipazione</h2>
+    <dl>
+      <dt>Email</dt><dd>{{ voter.email|default:"Assente" }}</dd>
+      <dt>Cellulare</dt><dd>{{ voter.phone|default:"Assente" }}</dd>
+      <dt>Ultimo invito o reinvio</dt>
+      <dd>{% if last_invite %}{{ last_invite.get_state_display }}{% if last_invite.reason %} · {{ last_invite.get_reason_display }}{% endif %}{% else %}Nessun invio{% endif %}</dd>
+      <dt>Partecipazione</dt><dd>{% if has_voted %}Ha votato{% else %}Non ha ancora votato{% endif %}</dd>
+    </dl>
+    {% if is_open or election.status == "draft" or election.status == "scheduled" %}
+      <div><a class="button secondary" href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

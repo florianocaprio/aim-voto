@@ -1,7 +1,9 @@
 import re
 from io import BytesIO
+from urllib.parse import urlsplit
 from uuid import uuid4
 
+from django.conf import settings
 from django.contrib import messages
 from django.core import signing
 from django.core.exceptions import ValidationError
@@ -449,17 +451,72 @@ def voters(request, pk):
     )
 
 
+def whatsapp_number(phone):
+    number = re.sub(r"[\s()./\-]", "", phone)
+    if number.startswith("+"):
+        number = number[1:]
+    elif number.startswith("00"):
+        number = number[2:]
+    elif re.fullmatch(r"3[0-9]{8,9}", number):
+        number = "39" + number
+    else:
+        return None
+    return number if re.fullmatch(r"[1-9][0-9]{6,14}", number) else None
+
+
+@administrator
+@require_GET
+def voter_detail(request, pk, voter_pk):
+    from mailings.models import CampaignState, MailKind
+
+    election = get_election(pk)
+    voter = get_object_or_404(election.voters, pk=voter_pk)
+    last_invite = (
+        voter.deliveries.filter(kind__in=[MailKind.INVITE, MailKind.RESEND])
+        .exclude(campaign__state=CampaignState.PREVIEW)
+        .order_by("-pk")
+        .first()
+    )
+    return render(
+        request,
+        "voting/voter_detail.html",
+        {
+            "election": election,
+            "voter": voter,
+            "last_invite": last_invite,
+            "has_voted": NamedBallot.objects.filter(voter=voter).exists(),
+            "is_open": services.is_open(election),
+            "whatsapp_phone": whatsapp_number(voter.phone),
+            "local_link": urlsplit(settings.AIM_BASE_URL).hostname
+            in {"localhost", "127.0.0.1", "::1"},
+        },
+    )
+
+
 @administrator
 @require_POST
 @transaction.atomic
 def link(request, pk, voter_pk):
     election = get_election(pk, lock=True)
     voter = get_object_or_404(election.voters, pk=voter_pk)
+    whatsapp_phone = request.POST.get("whatsapp_phone")
+    if whatsapp_phone is not None:
+        current_phone = whatsapp_number(voter.phone)
+        if not current_phone or current_phone != whatsapp_phone:
+            return JsonResponse(
+                {
+                    "error": "Verifica il cellulare nella scheda dell’elettore e riprova."
+                },
+                status=409,
+            )
     try:
         url = services.copy_link(election, voter, request.user)
     except ValidationError as exc:
         return JsonResponse({"error": exc.messages[0]}, status=409)
-    return JsonResponse({"url": url})
+    result = {"url": url}
+    if whatsapp_phone is not None:
+        result["whatsapp_url"] = f"https://web.whatsapp.com/send?phone={current_phone}"
+    return JsonResponse(result)
 
 
 @administrator
@@ -523,7 +580,7 @@ def contact(request, pk, voter_pk):
                 details={"campi": changed, "motivo": form.cleaned_data["reason"]},
             )
         messages.success(request, "Recapiti della consultazione salvati.")
-        return redirect("voting:voters", pk=pk)
+        return redirect("voting:voter_detail", pk=pk, voter_pk=voter_pk)
     return form_page(request, "Correggi i recapiti", form, election, subject=voter)
 
 

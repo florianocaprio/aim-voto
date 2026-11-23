@@ -63,7 +63,7 @@
       <tbody>
         {% for row in rows %}
           <tr>
-            <th scope="row">{{ row.voter.first_name }} {{ row.voter.last_name }} <small>{{ row.voter.external_id }}</small></th>
+            <th scope="row"><a href="{% url 'voting:voter_detail' election.pk row.voter_id %}">{{ row.voter.first_name }} {{ row.voter.last_name }}</a> <small>{{ row.voter.external_id }}</small></th>
             <td>{{ row.voter.section }}</td>
             <td>{{ row.voter.email|default:"Mancante" }}</td>
             <td>{{ row.get_state_display }}{% if row.reason %} · {{ row.get_reason_display }}{% endif %}{% if row.state == "uncertain" %}<br><small>Message-ID {{ row.smtp_message_id }}</small>{% endif %}</td>
