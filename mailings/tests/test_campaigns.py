@@ -64,7 +64,7 @@ def create_voter(election, serial, section="Nord", address=None):
 class CampaignTests(TestCase):
     def setUp(self):
         self.admin = get_user_model().objects.create(
-            username="operatore-demo", is_staff=True
+            username="operatore-demo", is_staff=True, is_superuser=True
         )
         self.election = create_election(self.admin)
         self.client.force_login(self.admin)
@@ -412,7 +412,7 @@ class CampaignTests(TestCase):
 class ConcurrentWorkersTests(TransactionTestCase):
     def test_workers_claim_a_delivery_only_once(self):
         actor = get_user_model().objects.create(
-            username="operatore-queue", is_staff=True
+            username="operatore-queue", is_staff=True, is_superuser=True
         )
         election = create_election(actor)
         create_voter(election, 1)

@@ -1,7 +1,9 @@
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from members.models import Member
+from voting.models import Delegation, ElectionVoter, NamedBallot
 
 from .support import election_with_motion, staff
 
@@ -77,3 +79,100 @@ class ElectorateTests(TestCase):
         )
         self.assertEqual(self.election.voters.get().last_name, "Bianchi")
         self.assertTrue(hasattr(self.election.voters.get(), "credential"))
+
+    def test_electorate_order_applies_to_filtered_results_before_pagination(self):
+        voters = ElectionVoter.objects.bulk_create(
+            [
+                ElectionVoter(
+                    election=self.election,
+                    first_name=f"Socio {index:02d}",
+                    last_name=f"Fittizio {40 - index:02d}",
+                    external_id=f"TEST-{index:02d}",
+                )
+                for index in range(41)
+            ]
+        )
+        self.election.voters.create(**self.data)
+        for sort, expected in (
+            ("name", voters),
+            ("name-desc", voters[::-1]),
+            ("surname", voters[::-1]),
+            ("surname-desc", voters),
+            ("unsupported", voters[::-1]),
+        ):
+            with self.subTest(sort=sort):
+                response = self.client.get(
+                    self.list_url, {"q": "Fittizio", "sort": sort}
+                )
+                self.assertEqual(list(response.context["page"]), expected[:40])
+                selected = response.context["sort"]
+                self.assertContains(
+                    response, f'href="?q=Fittizio&amp;sort={selected}&amp;page=2"'
+                )
+                second_page = self.client.get(
+                    self.list_url, {"q": "Fittizio", "sort": selected, "page": 2}
+                )
+                self.assertEqual(list(second_page.context["page"]), expected[40:])
+                self.assertContains(
+                    second_page, f'href="?q=Fittizio&amp;sort={selected}&amp;page=1"'
+                )
+
+    def test_electorate_orders_and_outlines_participation_states(self):
+        delegate, absent, submitted, delegated, direct, represented = [
+            self.election.voters.create(
+                first_name=name, last_name="Fittizio", external_id=f"TEST-{index}"
+            )
+            for index, name in enumerate(
+                (
+                    "Delegato",
+                    "Assente",
+                    "Richiesta",
+                    "Delegante",
+                    "Presente",
+                    "Rappresentato",
+                )
+            )
+        ]
+        self.election.allow_delegations = True
+        self.election.save(update_fields=["allow_delegations"])
+        self.assertEqual(
+            self.client.post(
+                reverse("voting:transition", args=[self.election.pk, "apri"]),
+                {"confirm": "yes"},
+            ).status_code,
+            302,
+        )
+        for grantor, holder, state in (
+            (submitted, direct, Delegation.State.PENDING),
+            (delegated, delegate, Delegation.State.APPROVED),
+            (represented, direct, Delegation.State.APPROVED),
+        ):
+            Delegation.objects.create(
+                grantor=grantor,
+                delegate=holder,
+                state=state,
+                requested_at=timezone.now(),
+            )
+        NamedBallot.objects.create(voter=delegate)
+        NamedBallot.objects.create(voter=direct)
+        NamedBallot.objects.create(voter=represented, cast_by=direct)
+
+        pending_first = self.client.get(self.list_url, {"sort": "to-finish"})
+        expected = [delegate, absent, submitted, delegated, direct, represented]
+        self.assertEqual(list(pending_first.context["page"]), expected)
+        done_first = self.client.get(self.list_url, {"sort": "finished"})
+        self.assertEqual(list(done_first.context["page"]), expected[::-1])
+        for badge, label, count in (
+            (" vote-status-voted", "Ha votato", 2),
+            (" vote-status-voted", "Ha votato per delega", 1),
+            (" vote-status-unvoted", "Non ha ancora votato", 1),
+            ("", "Delega inviata · in verifica", 1),
+            ("", "Delega conferita", 1),
+        ):
+            self.assertContains(
+                pending_first,
+                f'<span class="vote-status{badge}">{label}</span>',
+                html=True,
+                count=count,
+            )
+        self.assertContains(pending_first, "1 delega da votare", count=1)

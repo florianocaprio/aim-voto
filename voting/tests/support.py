@@ -10,8 +10,10 @@ from voting import services
 from voting.models import Choice, Election, ElectionVoter, Question
 
 
-def staff():
-    return get_user_model().objects.create(username="operatore", is_staff=True)
+def staff(*, superadmin=False):
+    return get_user_model().objects.create(
+        username="operatore", is_staff=True, is_superuser=superadmin
+    )
 
 
 def election_with_motion(actor, title="Consultazione dimostrativa"):

@@ -1,0 +1,16 @@
+{% if outlined %}<span class="vote-status{% if voter.has_voted %} vote-status-voted{% elif not voter.outgoing_delegation %} vote-status-unvoted{% endif %}">{% endif %}
+{% if voter.voted_by_proxy %}
+  Ha votato per delega
+{% elif voter.has_voted %}
+  Ha votato
+{% elif voter.outgoing_delegation == "approved" %}
+  Delega conferita
+{% elif voter.outgoing_delegation == "pending" %}
+  Delega inviata · in verifica
+{% else %}
+  Non ha ancora votato
+{% endif %}
+{% if outlined %}</span>{% endif %}
+{% if voter.pending_delegated_votes %}
+  <small>{{ voter.pending_delegated_votes }} {% if voter.pending_delegated_votes == 1 %}delega{% else %}deleghe{% endif %} da votare</small>
+{% endif %}

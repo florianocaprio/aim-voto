@@ -32,7 +32,7 @@ from .support import (
 @override_settings(REQUIRE_ADMIN_MFA=False)
 class SecretVoteTests(TestCase):
     def setUp(self):
-        self.staff = staff()
+        self.staff = staff(superadmin=True)
         self.admin = Client()
         self.admin.force_login(self.staff)
         self.election, self.question, self.options = election_with_motion(self.staff)
@@ -100,11 +100,19 @@ class SecretVoteTests(TestCase):
         )
         blocked = review(grantor, 0, self.question, self.options[1])
         self.assertEqual(blocked.status_code, 409)
+        electorate = reverse("voting:voters", args=[self.election.pk])
+        self.assertContains(self.admin.get(electorate), "1 delega da votare")
         proxy_path = reverse("voting:proxy_ballot", args=[delegation.pk])
         payload = proxy.post(proxy_path, {"revision": 0}).context["payload"]
         self.assertContains(
             proxy.post(self.submit_url, {"payload": payload}),
             "Schede acquisite per 2 di 4",
+        )
+        voters = self.admin.get(electorate)
+        self.assertContains(voters, "Ha votato per delega")
+        self.assertNotContains(voters, "delega da votare")
+        self.assertContains(
+            proxy.get(reverse("voting:assembly")), 'class="button delegation-completed"'
         )
         grantor.post(reverse("voting:voter_revoke", args=[delegation.pk]))
         delegation.refresh_from_db()

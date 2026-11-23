@@ -11,7 +11,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
-from config.auth import staff_required
+from voting.access import election_administrator
 from voting.models import MAX_ELECTORATE_SIZE, Election
 
 from .demo import DEMO_MEMBERS
@@ -42,7 +42,7 @@ def active_batches(request, election):
 
 
 @never_cache
-@staff_required
+@election_administrator
 @require_http_methods(["GET", "POST"])
 def upload(request, pk):
     election = draft_election(pk)
@@ -77,7 +77,7 @@ def upload(request, pk):
 
 
 @never_cache
-@staff_required
+@election_administrator
 @require_http_methods(["GET", "POST"])
 def mapping(request, pk, batch_id):
     election = draft_election(pk)
@@ -112,7 +112,7 @@ def mapping(request, pk, batch_id):
 
 
 @never_cache
-@staff_required
+@election_administrator
 @require_http_methods(["GET", "POST"])
 def preview(request, pk, batch_id):
     election = draft_election(pk)
@@ -174,14 +174,14 @@ def csv_download(filename, rows):
     return response
 
 
-@staff_required
+@election_administrator
 @require_GET
 def template_csv(request, pk):
     draft_election(pk)
     return csv_download("modello-elettori.csv", [])
 
 
-@staff_required
+@election_administrator
 @require_GET
 def demo_csv(request, pk):
     draft_election(pk)
@@ -191,7 +191,7 @@ def demo_csv(request, pk):
     )
 
 
-@staff_required
+@election_administrator
 @require_GET
 def template_xlsx(request, pk):
     draft_election(pk)

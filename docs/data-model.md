@@ -4,9 +4,11 @@
 | --- | --- |
 | `Member` | Anagrafica preesistente, conservata per i riferimenti storici. |
 | `ImportBatch` | Consultazione, righe caricate temporaneamente, mappatura, autore, scadenza e riepilogo. La conferma svuota i dati di anteprima. |
-| `Election` | Titolo, descrizione, calendario, modalità palese o segreta, stato, opzione di sostituzione e intervallo dei solleciti. |
+| `Election` | Titolo, descrizione, calendario, modalità palese o segreta, stato, opzione di sostituzione e intervallo dei solleciti. Per le assemblee, tipologia, convocazione, totale degli associati e configurazione delle soglie congelata all’apertura. Conserva anche i dati facoltativi del verbale, ossia nominativi dei firmatari, città e data di firma, ordine del giorno e discussione. |
+| `ElectionAdministrator` | Profilo univoco per account staff con accesso limitato alle consultazioni assegnate. Il profilo resta limitato anche quando l’elenco è vuoto dopo revoche o eliminazioni. |
 | `AssemblyQuorum` | Impostazione facoltativa per consultazione. Registra criterio di conteggio, confronto, soglia assoluta o frazionaria, eventuale riferimento statutario, autore e data dell’ultimo salvataggio. |
-| `Question`, `Choice` | Quesiti e relative opzioni. Il tipo determina il massimo di preferenze. |
+| `AssemblyVerification` | Verifica assembleare con revisione univoca per consultazione. Registra Presidente, riferimento all’attestazione, autore, data, base di partecipazione, risultati aggregati ed eventuale motivazione della rettifica. La rettifica aggiunge una revisione. |
+| `Question`, `Choice` | Quesiti e opzioni. Il tipo determina il massimo di preferenze. Il minimo di votanti e il criterio deliberativo si configurano in campi indipendenti. |
 | `ElectionDocument` | PDF privato associato alla consultazione, servito come allegato dopo verifica dell'autorizzazione. |
 | `ElectionVoter` | Una posizione autonoma per coppia consultazione-matricola. Conserva generalità, sezione e recapiti usati nella votazione. Le posizioni preesistenti mantengono il riferimento facoltativo a `Member`. |
 | `VotingCredential` | Una credenziale attiva per posizione. Il digest SHA-256 è univoco e indicizzato. Il valore cifrato Fernet consente il recupero autorizzato. La versione invalida le sessioni precedenti dopo una revoca. |

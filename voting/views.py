@@ -9,7 +9,7 @@ from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db.models import Case, Count, Exists, OuterRef, Q, Subquery, Value, When
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.middleware.csrf import rotate_token
 from django.shortcuts import get_object_or_404, redirect, render
@@ -18,12 +18,14 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from config.auth import require_superadmin, staff_required, superadmin_required
 from mailings.campaigns import enqueue_results
 
-from . import assembly_report, proxy_access, reports, services
-from .access import administrator
+from . import assembly, assembly_report, proxy_access, quorum, reports, services
+from .access import election_administrator, has_global_access, managed_elections
 from .forms import (
-    AssemblyQuorumForm,
+    AssemblyMinutesForm,
+    AssemblyVerificationForm,
     ContactForm,
     DocumentForm,
     ElectionForm,
@@ -33,14 +35,16 @@ from .forms import (
 )
 from .models import (
     MAX_ELECTORATE_SIZE,
-    AssemblyQuorum,
+    AssemblyVerification,
     Choice,
     Delegation,
     Election,
     ElectionDocument,
     ElectionVoter,
     Question,
+    VoterPresence,
     VotingCredential,
+    VotingQuorum,
 )
 
 # Require a link redemption with CSRF rotation before accepting votes from older tabs.
@@ -52,11 +56,16 @@ def home(request):
     return render(request, "voting/home.html")
 
 
-@administrator
+@staff_required
 @require_GET
 def dashboard(request):
     return render(
-        request, "voting/dashboard.html", {"elections": Election.objects.all()}
+        request,
+        "voting/dashboard.html",
+        {
+            "elections": managed_elections(request.user),
+            "can_create": has_global_access(request.user),
+        },
     )
 
 
@@ -84,7 +93,7 @@ def form_page(request, title, form, election=None, *, submit_text="Salva", **con
     )
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def election_edit(request, pk=None):
@@ -109,7 +118,34 @@ def election_edit(request, pk=None):
     )
 
 
-@administrator
+def question_summary(question, election, electorate_count, assembly_rules):
+    if assembly_rules:
+        matter = assembly_rules["agenda"].get(str(question.pk))
+        if matter:
+            rule = matter["question_quorum"]
+            minimum = (
+                quorum.Rule(**rule).minimum(assembly_rules["eligible"])
+                if rule
+                else None
+            )
+            return {
+                "label": matter["question_quorum_label"],
+                "minimum": minimum,
+                "matter": matter,
+            }
+    rule = quorum.question_constitution_rule(
+        question.constitutive_quorum,
+        question.constitutive_fraction,
+        question.minimum_voters,
+    )
+    if rule is not None:
+        return quorum.question_quorum_outcome(rule, electorate_count, 0)
+    return reports.participation_quorum(
+        question.voting_quorum or election.voting_quorum, electorate_count, 0
+    ) or {"label": "Non configurato"}
+
+
+@election_administrator
 @require_GET
 def detail(request, pk):
     election = get_election(pk)
@@ -118,22 +154,45 @@ def detail(request, pk):
     from mailings.models import EmailDelivery, MailKind
 
     mail = EmailDelivery.objects.filter(
-        voter__election=election, campaign__kind__in=[MailKind.INVITE, MailKind.RESEND]
+        voter__election=election,
+        kind__in=[MailKind.INVITE, MailKind.RESEND, MailKind.EARLY, MailKind.VOTE_OPEN],
     )
     mail_states = mail.values_list("voter_id", "state").distinct()
     accepted = {voter_id for voter_id, state in mail_states if state == "accepted"}
     problems = {
         voter_id for voter_id, state in mail_states if state in {"failed", "uncertain"}
     }
+    assembly_rules = election.assembly_snapshot
+    assembly_error = ""
+    if election.assembly_type and assembly_rules is None:
+        try:
+            assembly_rules = quorum.configuration(election, electorate_count)
+        except ValidationError as error:
+            assembly_error = error.messages[0]
+    verification = (
+        election.assembly_verifications.first() if election.assembly_snapshot else None
+    )
     return render(
         request,
         "voting/detail.html",
         {
             "election": election,
-            "questions": services.ballot_questions(election),
+            "questions": [
+                (
+                    question,
+                    question_summary(
+                        question, election, electorate_count, assembly_rules
+                    ),
+                )
+                for question in services.ballot_questions(election)
+            ],
+            "assembly_rules": assembly_rules,
+            "assembly_error": assembly_error,
+            "verification": verification,
             "documents": election.documents.defer("content"),
             "electorate_count": electorate_count,
             "ballot_count": ballot_count,
+            "delegation_phase": services.is_delegation_phase(election),
             "turnout": round(100 * ballot_count / electorate_count, 1)
             if electorate_count
             else 0,
@@ -144,7 +203,7 @@ def detail(request, pk):
     )
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def question_edit(request, pk, qid=None):
@@ -154,12 +213,33 @@ def question_edit(request, pk, qid=None):
         get_object_or_404(election.questions, pk=qid) if qid is not None else None
     )
     initial = None
+    legacy_quorum_label = ""
     if question:
+        threshold = question.voting_quorum
+        saved_rule = quorum.question_constitution_rule(
+            question.constitutive_quorum,
+            question.constitutive_fraction,
+            question.minimum_voters,
+        )
+        if saved_rule is not None:
+            if saved_rule.fixed is None and not saved_rule.strict:
+                threshold = (
+                    f"{saved_rule.numerator}/{saved_rule.denominator}"
+                    if saved_rule.numerator
+                    else VotingQuorum.FREE
+                )
+            if threshold not in VotingQuorum.values:
+                legacy_quorum_label = saved_rule.label
+                threshold = ""
         initial = {
             "text": question.text,
             "kind": question.kind,
             "max_choices": question.max_choices,
-            "voting_quorum": question.voting_quorum,
+            "constitutive_quorum": threshold,
+            "deliberation_type": question.deliberation_type or None,
+            "deliberative_majority": question.deliberative_majority,
+            "majority_override": question.majority_override,
+            "majority_basis": question.majority_basis,
             "options": "\n".join(question.choices.values_list("text", flat=True)),
         }
     if request.method == "POST" and request.POST.get("remove") and question:
@@ -169,7 +249,9 @@ def question_edit(request, pk, qid=None):
         services.audit("quesito_rimosso", actor=request.user, election=election)
         return redirect("voting:detail", pk=pk)
     form = QuestionForm(
-        request.POST if request.method == "POST" else None, initial=initial
+        request.POST if request.method == "POST" else None,
+        initial=initial,
+        election=election,
     )
     if request.method == "POST" and form.is_valid():
         if not question and election.questions.count() >= 30:
@@ -178,8 +260,20 @@ def question_edit(request, pk, qid=None):
             )
         else:
             question = question or Question(election=election)
-            for field in ("text", "kind", "max_choices", "voting_quorum"):
-                setattr(question, field, form.cleaned_data[field])
+            for field in (
+                "text",
+                "kind",
+                "max_choices",
+                "voting_quorum",
+                "deliberation_type",
+                "deliberative_majority",
+                "majority_override",
+                "majority_basis",
+            ):
+                setattr(question, field, form.cleaned_data.get(field, ""))
+            question.constitutive_quorum = ""
+            question.minimum_voters = None
+            question.constitutive_fraction = ""
             question.save()
             question.choices.all().delete()
             Choice.objects.bulk_create(
@@ -194,16 +288,19 @@ def question_edit(request, pk, qid=None):
         form,
         election,
         remove_question=bool(question),
+        question_rules=True,
+        question_presets=quorum.DELIBERATION_PRESETS if election.assembly_type else {},
+        legacy_quorum_label=legacy_quorum_label,
     )
 
 
-@administrator
+@election_administrator
 @require_GET
 def electorate(request, pk):
     return redirect("voting:voters", pk=pk)
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def voter_edit(request, pk, voter_pk=None):
@@ -253,7 +350,7 @@ def voter_edit(request, pk, voter_pk=None):
     )
 
 
-@administrator
+@election_administrator
 @require_POST
 @transaction.atomic
 def voter_remove(request, pk, voter_pk):
@@ -275,7 +372,7 @@ def voter_remove(request, pk, voter_pk):
     return redirect("voting:voters", pk=pk)
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def documents(request, pk):
@@ -287,7 +384,8 @@ def documents(request, pk):
             raise Http404
         get_object_or_404(election.documents, pk=value).delete()
         services.audit("documento_rimosso", actor=request.user, election=election)
-        return redirect("voting:detail", pk=pk)
+        messages.success(request, "Documento rimosso.")
+        return redirect("voting:documents", pk=pk)
     form = DocumentForm(
         request.POST if request.method == "POST" else None, request.FILES or None
     )
@@ -297,14 +395,16 @@ def documents(request, pk):
         else:
             form.save(election)
             services.audit("documento_caricato", actor=request.user, election=election)
-            return redirect("voting:detail", pk=pk)
+            messages.success(request, "Documento caricato.")
+            return redirect("voting:documents", pk=pk)
     return form_page(
         request,
         "Documenti informativi",
         form,
         election,
+        submit_text="Carica PDF",
         multipart=True,
-        documents=election.documents.defer("content"),
+        documents=election.documents.defer("content").order_by("pk"),
     )
 
 
@@ -317,7 +417,7 @@ def document_response(document):
     )
 
 
-@administrator
+@election_administrator
 @require_GET
 def admin_document(request, pk, doc):
     return document_response(
@@ -325,7 +425,7 @@ def admin_document(request, pk, doc):
     )
 
 
-@administrator
+@election_administrator
 @require_GET
 def preview(request, pk):
     election = get_election(pk)
@@ -343,7 +443,8 @@ def preview(request, pk):
 
 
 TRANSITIONS = {
-    "apri": "Apri la consultazione",
+    "apri": "Apri per votazione",
+    "apri-deleghe": "Apri per delega",
     "programma": "Programma l’apertura",
     "chiudi": "Chiudi la consultazione",
     "scrutina": "Pubblica lo scrutinio",
@@ -358,6 +459,9 @@ def apply_transition(election, action, actor, reason):
     current = election.status
     statuses = Election.Status
     now = services.database_now()
+    if action == "apri-deleghe":
+        services.open_delegations_locked(election, actor=actor, now=now)
+        return "voting:detail"
     if action == "apri":
         services.open_locked(election, actor=actor, now=now)
         return "voting:detail"
@@ -381,14 +485,26 @@ def apply_transition(election, action, actor, reason):
             )
         if not election.questions.exists() or not election.voters.exists():
             raise ValidationError("Inserisci almeno un quesito e un elettore.")
+        quorum.validate_minimum_voters(election, election.voters.count())
+        if election.assembly_type:
+            quorum.configuration(election, election.voters.count())
         election.status = statuses.SCHEDULED
     elif action == "bozza" and current == statuses.SCHEDULED:
         election.status = statuses.DRAFT
     elif action == "scrutina" and current == statuses.CLOSED:
-        data = reports.tally(election)
+        if election.assembly_snapshot:
+            verified = election.assembly_verifications.first()
+            if verified is None:
+                raise ValidationError(
+                    "Registra la verifica assembleare prima di pubblicare lo scrutinio."
+                )
+            data = verified.result
+        else:
+            data = reports.results_with_outcomes(election)
         election.status = statuses.TALLIED
     elif action == "annulla" and current in {
         statuses.SCHEDULED,
+        statuses.DELEGATIONS,
         statuses.OPEN,
         statuses.CLOSED,
     }:
@@ -402,16 +518,25 @@ def apply_transition(election, action, actor, reason):
     election.save(update_fields=["status", "ended_at", "cancellation_reason"])
     if action == "scrutina":
         enqueue_results(election, actor, now, data)
-    services.audit(action, actor=actor, election=election)
+    services.audit(
+        action,
+        actor=actor,
+        election=election,
+        details={"revisione_verifica": data["assembly"]["revision"]}
+        if action == "scrutina" and "assembly" in data
+        else None,
+    )
     return "voting:detail"
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def transition(request, pk, action):
     if action not in TRANSITIONS:
         raise Http404
+    if action == "apri-deleghe":
+        require_superadmin(request.user)
     election = get_election(pk, request.method == "POST")
     if action == "elimina-pubblicata" and election.status != Election.Status.TALLIED:
         raise Http404
@@ -430,6 +555,15 @@ def transition(request, pk, action):
         else:
             if action == "elimina-pubblicata":
                 messages.success(request, "Consultazione eliminata.")
+            elif action == "apri-deleghe":
+                messages.success(
+                    request,
+                    "Deleghe e documenti disponibili. Gli inviti personali sono in coda.",
+                )
+            elif action == "apri" and election.delegations_opened_at:
+                messages.success(
+                    request, "Votazione aperta. L’avviso con lo stesso link è in coda."
+                )
             if destination == "voting:dashboard":
                 return redirect(destination)
             return redirect(destination, pk=pk)
@@ -444,25 +578,71 @@ def transition(request, pk, action):
     )
 
 
-@administrator
+def voters_with_participation(election):
+    ballots = election.participation_records().filter(voter_id=OuterRef("pk"))
+    outgoing = Delegation.objects.filter(
+        grantor_id=OuterRef("pk"),
+        delegate__election=election,
+        state__in=assembly.ACTIVE,
+    )
+    pending = (
+        Delegation.objects.filter(
+            delegate_id=OuterRef("pk"),
+            grantor__election=election,
+            state=Delegation.State.APPROVED,
+        )
+        .filter(~Exists(assembly.ballots_cast_by_delegate(election)))
+        .order_by()
+        .values("delegate_id")
+        .annotate(total=Count("pk"))
+        .values("total")
+    )
+    return election.voters.annotate(
+        has_voted=Exists(ballots),
+        voted_by_proxy=Exists(ballots.filter(cast_by__isnull=False)),
+        outgoing_delegation=Subquery(outgoing.values("state")[:1]),
+        pending_delegated_votes=Subquery(pending),
+    )
+
+
+@election_administrator
 @require_GET
 def voters(request, pk):
     from mailings.models import EmailDelivery, MailKind
 
     election = get_election(pk)
     search = request.GET.get("q", "").strip()[:150]
+    orderings = {
+        "surname": ("Cognome e nome · A–Z", ("last_name", "first_name")),
+        "surname-desc": ("Cognome e nome · Z–A", ("-last_name", "-first_name")),
+        "name": ("Nome e cognome · A–Z", ("first_name", "last_name")),
+        "name-desc": ("Nome e cognome · Z–A", ("-first_name", "-last_name")),
+        "to-finish": (
+            "Stato del voto · da completare prima",
+            ("vote_progress", "last_name", "first_name"),
+        ),
+        "finished": (
+            "Stato del voto · completati prima",
+            ("-vote_progress", "last_name", "first_name"),
+        ),
+    }
+    sort = request.GET.get("sort", "surname")
+    if sort not in orderings:
+        sort = "surname"
     deliveries = (
         EmailDelivery.objects.filter(
             voter_id=OuterRef("pk"),
-            campaign__kind__in=[MailKind.INVITE, MailKind.RESEND],
+            kind__in=[
+                MailKind.INVITE,
+                MailKind.RESEND,
+                MailKind.EARLY,
+                MailKind.VOTE_OPEN,
+            ],
         )
         .exclude(campaign__state="preview")
         .order_by("-pk")
     )
-    queryset = election.voters.annotate(
-        has_voted=Exists(
-            election.participation_records().filter(voter_id=OuterRef("pk"))
-        ),
+    queryset = voters_with_participation(election).annotate(
         mail_state=Subquery(deliveries.values("state")[:1]),
     )
     for term in search.split():
@@ -473,6 +653,18 @@ def voters(request, pk):
             | Q(email__icontains=term)
             | Q(phone__icontains=term)
         )
+    if sort in {"to-finish", "finished"}:
+        queryset = queryset.annotate(
+            vote_progress=Case(
+                When(pending_delegated_votes__gt=0, then=Value(0)),
+                When(voted_by_proxy=True, then=Value(5)),
+                When(has_voted=True, then=Value(4)),
+                When(outgoing_delegation=Delegation.State.APPROVED, then=Value(3)),
+                When(outgoing_delegation=Delegation.State.PENDING, then=Value(2)),
+                default=Value(1),
+            )
+        )
+    queryset = queryset.order_by(*orderings[sort][1], "pk")
     page = Paginator(queryset, 40).get_page(request.GET.get("page"))
     state_field = EmailDelivery._meta.get_field("state")
     labels = dict(state_field.flatchoices)
@@ -485,7 +677,9 @@ def voters(request, pk):
             "election": election,
             "page": page,
             "search": search,
-            "is_open": services.is_open(election),
+            "sort": sort,
+            "sort_options": [(key, label) for key, (label, _) in orderings.items()],
+            "links_available": services.links_available(election),
         },
     )
 
@@ -503,16 +697,23 @@ def whatsapp_number(phone):
     return number if re.fullmatch(r"[1-9][0-9]{6,14}", number) else None
 
 
-@administrator
+@election_administrator
 @require_GET
 def voter_detail(request, pk, voter_pk):
     from mailings.models import CampaignState, MailKind
 
     election = get_election(pk)
-    voter = get_object_or_404(election.voters, pk=voter_pk)
+    voter = get_object_or_404(voters_with_participation(election), pk=voter_pk)
     record = election.participation_records().filter(voter=voter).first()
     last_invite = (
-        voter.deliveries.filter(kind__in=[MailKind.INVITE, MailKind.RESEND])
+        voter.deliveries.filter(
+            kind__in=[
+                MailKind.INVITE,
+                MailKind.RESEND,
+                MailKind.EARLY,
+                MailKind.VOTE_OPEN,
+            ]
+        )
         .exclude(campaign__state=CampaignState.PREVIEW)
         .order_by("-pk")
         .first()
@@ -524,7 +725,6 @@ def voter_detail(request, pk, voter_pk):
             "election": election,
             "voter": voter,
             "last_invite": last_invite,
-            "has_voted": record is not None,
             "named_vote": reports.ballot_summary(
                 services.ballot_questions(election), record.answers
             )
@@ -532,7 +732,7 @@ def voter_detail(request, pk, voter_pk):
             and not election.is_secret
             and election.status == Election.Status.TALLIED
             else None,
-            "is_open": services.is_open(election),
+            "links_available": services.links_available(election),
             "whatsapp_phone": whatsapp_number(voter.phone),
             "local_link": urlsplit(settings.AIM_BASE_URL).hostname
             in {"localhost", "127.0.0.1", "::1"},
@@ -540,7 +740,7 @@ def voter_detail(request, pk, voter_pk):
     )
 
 
-@administrator
+@superadmin_required
 @require_POST
 @transaction.atomic
 def link(request, pk, voter_pk):
@@ -566,7 +766,7 @@ def link(request, pk, voter_pk):
     return JsonResponse(result)
 
 
-@administrator
+@superadmin_required
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def rotate(request, pk, voter_pk):
@@ -595,7 +795,7 @@ def rotate(request, pk, voter_pk):
     )
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def contact(request, pk, voter_pk):
@@ -603,8 +803,10 @@ def contact(request, pk, voter_pk):
     if election.status not in {
         Election.Status.DRAFT,
         Election.Status.SCHEDULED,
-    } and not services.is_open(election):
+    } and not services.links_available(election):
         raise Http404
+    if services.links_available(election):
+        require_superadmin(request.user)
     voter = get_object_or_404(election.voters, pk=voter_pk)
     form = ContactForm(
         request.POST if request.method == "POST" else None,
@@ -714,6 +916,13 @@ def ballot_page(
     if voter is None:
         return render(request, "voting/unavailable.html", status=403)
     election = voter.election
+    if services.is_delegation_phase(election):
+        return render(
+            request,
+            "voting/delegation_phase.html",
+            {"election": election, "documents": election.documents.defer("content")},
+            status=409 if request.method == "POST" else 200,
+        )
     if election.status == Election.Status.TALLIED:
         if delegation is not None:
             participated = (
@@ -744,12 +953,18 @@ def ballot_page(
     actor_id = delegation.delegate_id if delegation else voter.pk
     scoped_link = proxy_access.SESSION_KEY in request.session
     received_delegations = 0
+    has_delegations_to_vote = False
     if election.allow_delegations and not scoped_link:
-        received_delegations = Delegation.objects.filter(
+        received = Delegation.objects.filter(
             delegate_id=actor_id,
             grantor__election=election,
             state=Delegation.State.APPROVED,
-        ).count()
+        )
+        received_delegations = received.count()
+        if received_delegations:
+            has_delegations_to_vote = received.filter(
+                ~Exists(assembly.ballots_cast_by_delegate(election))
+            ).exists()
     return render(
         request,
         "voting/ballot.html",
@@ -759,6 +974,7 @@ def ballot_page(
             "delegation": delegation,
             "scoped_link": scoped_link,
             "received_delegations": received_delegations,
+            "has_delegations_to_vote": has_delegations_to_vote,
             "presence_gate": election.require_presence
             and not services.has_confirmed_presence(actor_id),
             "delegated_out": delegation is None
@@ -999,75 +1215,181 @@ def voter_document(request, pk):
         )
         if delegation is not None:
             voter = delegation.grantor
-    if not voter or not services.is_open(voter.election):
+    if not voter or not services.links_available(voter.election):
         raise Http404
     return document_response(
         get_object_or_404(ElectionDocument, pk=pk, election=voter.election)
     )
 
 
-def tallied_election(pk):
-    return get_object_or_404(Election, pk=pk, status=Election.Status.TALLIED)
+def tallied_election(pk, *, lock=False):
+    queryset = Election.objects.select_for_update() if lock else Election
+    return get_object_or_404(queryset, pk=pk, status=Election.Status.TALLIED)
 
 
-@administrator
+@election_administrator
 @require_GET
 def results(request, pk):
     election = tallied_election(pk)
+    data = reports.results_with_outcomes(election)
+    verification = (
+        election.assembly_verifications.filter(
+            revision=data["assembly"]["revision"]
+        ).first()
+        if "assembly" in data
+        else None
+    )
     return render(
         request,
         "voting/results.html",
-        {"election": election, **reports.results_with_outcomes(election)},
+        {
+            "election": election,
+            "verification": verification,
+            **data,
+        },
     )
 
 
-@administrator
+@election_administrator
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
-def assembly_report_page(request, pk):
+def verify_assembly(request, pk):
     election = get_election(pk, request.method == "POST")
-    if election.status not in {
-        Election.Status.DRAFT,
+    if not election.assembly_snapshot or election.status not in {
         Election.Status.CLOSED,
         Election.Status.TALLIED,
     }:
         raise Http404
-    quorum = AssemblyQuorum.objects.filter(election=election).first()
-    form = AssemblyQuorumForm(
+    previous = election.assembly_verifications.first()
+    tally = reports.tally(election)
+    if previous:
+        initial = {
+            "president": previous.president,
+            "reference": previous.reference,
+            "present": previous.participation["present"],
+            "delegations": [
+                item["id"] for item in previous.participation["delegations"]
+            ],
+        }
+    else:
+        initial = {
+            "present": list(
+                VoterPresence.objects.filter(
+                    voter__election=election,
+                    source=VoterPresence.Source.EXPLICIT,
+                ).values_list("voter_id", flat=True)
+            )
+        }
+    form = AssemblyVerificationForm(
         request.POST if request.method == "POST" else None,
-        instance=quorum or AssemblyQuorum(election=election),
+        election=election,
+        tally=tally,
+        previous=previous,
+        initial=initial,
     )
     if request.method == "POST" and form.is_valid():
-        if quorum is None or form.has_changed():
-            configured = form.save(commit=False)
-            configured.updated_by = request.user
-            configured.save()
+        fields = form.cleaned_data
+        revision = previous.revision if previous else 0
+        if fields["expected_revision"] != revision:
+            form.add_error(None, "La verifica è stata aggiornata. Riapri il modulo.")
+        else:
+            verification = AssemblyVerification.objects.create(
+                election=election,
+                revision=revision + 1,
+                president=fields["president"],
+                reference=fields["reference"],
+                correction_reason=fields.get("correction_reason", ""),
+                verified_by=request.user,
+                verified_at=services.database_now(),
+                participation=fields["participation"],
+                result=quorum.verified_result(
+                    election.assembly_snapshot,
+                    fields["participation"],
+                    tally,
+                    revision + 1,
+                ),
+            )
             services.audit(
-                "quorum_assembleare_registrato",
+                "rettifica_assembleare" if previous else "verifica_assembleare",
                 actor=request.user,
                 election=election,
                 details={
-                    "criterio": configured.basis,
-                    "condizione": configured.comparison,
-                    "numeratore": configured.threshold_numerator,
-                    "denominatore": configured.threshold_denominator,
+                    "verifica": verification.pk,
+                    "revisione": verification.revision,
                 },
             )
-        messages.success(request, "Quorum assembleare salvato.")
-        return redirect("voting:assembly_report", pk=pk)
+            messages.success(request, "Verifica assembleare registrata.")
+            return redirect(
+                "voting:results"
+                if election.status == Election.Status.TALLIED
+                else "voting:detail",
+                pk=pk,
+            )
+    history = election.assembly_verifications.defer(
+        "participation", "result"
+    ).select_related("verified_by")
+    return render(
+        request,
+        "voting/verify_assembly.html",
+        {
+            "election": election,
+            "form": form,
+            "previous": previous,
+            "history": history,
+            "ballots": tally["total"],
+            "eligible": election.assembly_snapshot["eligible"],
+        },
+    )
+
+
+@election_administrator
+@sensitive_post_parameters()
+@require_http_methods(["GET", "POST"])
+def assembly_report_page(request, pk):
+    if request.method == "POST":
+        action = request.POST.get("download")
+        if action not in {"pdf", "docx", "zip", "save", "preview"}:
+            raise Http404
+        preview = action == "preview"
+        with transaction.atomic():
+            election = tallied_election(pk, lock=not preview)
+            form = AssemblyMinutesForm(request.POST, election=election)
+            valid = form.is_valid()
+            if valid:
+                fields = form.save(commit=not preview)
+                if fields and not preview:
+                    services.audit(
+                        "dati_verbale_aggiornati",
+                        actor=request.user,
+                        election=election,
+                        details={"campi": fields},
+                    )
+        if valid:
+            if action == "save":
+                messages.success(request, "Dati del verbale salvati.")
+                return redirect("voting:assembly_report", pk=pk)
+            return assembly_report.export(election, kind=action)
+    else:
+        election = get_election(pk)
+        if election.status not in {
+            Election.Status.DRAFT,
+            Election.Status.CLOSED,
+            Election.Status.TALLIED,
+        }:
+            raise Http404
+        form = AssemblyMinutesForm(election=election)
     return render(
         request,
         "voting/assembly_report.html",
         {
             "election": election,
-            "quorum": quorum,
             "form": form,
             "legal_note": assembly_report.LEGAL_NOTE,
         },
     )
 
 
-@administrator
+@election_administrator
 @require_GET
 def export(request, pk, kind):
     election = tallied_election(pk)
@@ -1077,6 +1399,12 @@ def export(request, pk, kind):
         return reports.participation_csv(election)
     if kind == "report-pdf":
         return reports.summary_pdf(election)
-    if kind in {"rapporto-assembleare-pdf", "rapporto-assembleare-zip"}:
-        return assembly_report.export(election, package=kind.endswith("-zip"))
+    if kind in {
+        "rapporto-assembleare-pdf",
+        "rapporto-assembleare-docx",
+        "rapporto-assembleare-zip",
+    }:
+        return assembly_report.export(
+            election, kind=kind.removeprefix("rapporto-assembleare-")
+        )
     raise Http404

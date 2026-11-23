@@ -15,18 +15,21 @@ Il primo comando crea `.env` con permessi 0600, genera segreti distinti e conser
 
 L’applicazione usa la porta 8000 e Mailpit la porta 8025, entrambe su `127.0.0.1`. PostgreSQL e SMTP sono raggiungibili all’interno della rete di Compose. Usa lo stesso host configurato in `AIM_BASE_URL` quando condividi un link tra finestre locali. [AIM Voto](http://localhost:8000) · [Mailpit](http://localhost:8025)
 
-Crea l’account amministrativo da un secondo terminale.
+Crea e abilita l’account superadmin da un secondo terminale, per una nuova installazione.
 
 ```sh
-docker compose exec web python manage.py create_staff responsabile-demo
+docker compose exec web python manage.py create_staff superadmin
+docker compose exec web python manage.py promote_staff superadmin
 ```
 
 Digita due volte una password unica di almeno 14 caratteri. L’inserimento è mascherato e Django conserva l’hash della password. Usa l’account creato per accedere alla gestione. [Accesso amministrativo](http://localhost:8000/account/accesso/)
 
+Su un’installazione con l’account `responsabile-demo`, puoi mantenere lo stesso account e la stessa password con `docker compose exec web python manage.py promote_staff responsabile-demo --rename superadmin`. Dopo l’accesso usa **Amministratori** per creare profili globali o limitati alle consultazioni che selezioni.
+
 Per provare MFA, configura il dispositivo in un terminale privato, imposta `REQUIRE_ADMIN_MFA=1` in `.env` e ricrea il web.
 
 ```sh
-docker compose exec web python manage.py enroll_staff_totp responsabile-demo
+docker compose exec web python manage.py enroll_staff_totp superadmin
 docker compose up -d web
 ```
 

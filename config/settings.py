@@ -178,15 +178,28 @@ SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", "assistenza@example.invalid")
 MAIL_SEND_PER_MINUTE = positive_integer("MAIL_SEND_PER_MINUTE", "30")
 MAIL_MAX_ATTEMPTS = positive_integer("MAIL_MAX_ATTEMPTS", "3")
 
-# Django's default request and security log records can contain the request path and
-# their exception context can contain voter information. Only explicit, sanitized audit
-# events belong in the application register. Gunicorn access logging stays disabled.
+# Django's default logs can expose request paths and exception messages. The server
+# error formatter reports only the status, the named view and the source location.
+# Gunicorn access logging stays disabled.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"discard": {"class": "logging.NullHandler"}},
+    "formatters": {"server_error": {"()": "config.logging.ServerErrorFormatter"}},
+    "handlers": {
+        "discard": {"class": "logging.NullHandler"},
+        "server_error": {
+            "class": "logging.StreamHandler",
+            "level": "ERROR",
+            "formatter": "server_error",
+        },
+    },
     "loggers": {
-        name: {"handlers": ["discard"], "propagate": False}
-        for name in ("django.server", "django.request", "django.security")
+        "django.request": {
+            "handlers": ["server_error"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "django.server": {"handlers": ["discard"], "propagate": False},
+        "django.security": {"handlers": ["discard"], "propagate": False},
     },
 }

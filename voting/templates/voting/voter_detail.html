@@ -10,9 +10,10 @@
   </div>
 </div>
 <div class="sections">
+  {% if user.is_superuser %}
   <section class="card stack">
     <h2>Link personale</h2>
-    {% if is_open %}
+    {% if links_available %}
       {% if local_link %}
         <p class="alert">Questa installazione genera link locali. La scheda si apre solo sul computer che esegue AIM Voto.</p>
       {% endif %}
@@ -40,9 +41,10 @@
         <a href="{% url 'voting:rotate' election.pk voter.pk %}">Revoca e rigenera link</a>
       </div>
     {% else %}
-      <p>La copia del link e l’invio sono disponibili durante l’apertura della votazione.</p>
+      <p>La copia e il reinvio sono disponibili dopo l’apertura per deleghe o per votazione.</p>
     {% endif %}
   </section>
+  {% endif %}
   <section class="card stack">
     <h2>Recapiti e partecipazione</h2>
     <dl>
@@ -50,7 +52,7 @@
       <dt>Cellulare</dt><dd>{{ voter.phone|default:"Assente" }}</dd>
       <dt>Ultimo invito o reinvio</dt>
       <dd>{% if last_invite %}{{ last_invite.get_state_display }}{% if last_invite.reason %} · {{ last_invite.get_reason_display }}{% endif %}{% else %}Nessun invio{% endif %}</dd>
-      <dt>Partecipazione</dt><dd>{% if has_voted %}Ha votato{% else %}Non ha ancora votato{% endif %}</dd>
+      <dt>Partecipazione</dt><dd>{% include "voting/voter_participation.html" %}</dd>
     </dl>
     {% if election.status == "draft" %}
       <div><a class="button secondary" href="{% url 'voting:voter_edit' election.pk voter.pk %}">Modifica elettore</a></div>
@@ -59,7 +61,7 @@
         <label><input type="checkbox" name="confirm" value="yes" required> Confermo la rimozione dalla platea</label>
         <button class="button danger">Rimuovi elettore</button>
       </form>
-    {% elif is_open or election.status == "scheduled" %}
+    {% elif election.status == "scheduled" or links_available and user.is_superuser %}
       <div><a class="button secondary" href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a></div>
     {% endif %}
   </section>

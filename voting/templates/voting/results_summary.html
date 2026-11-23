@@ -1,8 +1,16 @@
 <section class="card stack{% if quorum_failed %} quorum-failed{% endif %}" aria-labelledby="voting-quorum">
   {% if quorum %}
-    <h2 id="voting-quorum">{% if quorum_failed %}Quorum non raggiunto{% elif quorum.minimum %}Quorum raggiunto{% else %}Quorum libero{% endif %}</h2>
-    <p>{{ quorum.counted }} votanti su {{ eligible }} aventi diritto · {{ quorum.label }}{% if quorum.minimum %} · Minimo {{ quorum.minimum }}{% endif %}</p>
-    <p>{% if quorum_failed %}Gli esiti non sono validi per il quorum impostato.{% else %}Votazione valida secondo il quorum impostato.{% endif %}</p>
+    {% if assembly %}
+      <h2 id="voting-quorum">{% if quorum_failed %}Assemblea non validamente costituita{% else %}Quorum costitutivo raggiunto{% endif %}</h2>
+      <p>{{ assembly.type }} · {{ assembly.convocation }} · Verifica {{ assembly.revision }}</p>
+      <p>{{ quorum.counted }} partecipanti riconosciuti su {{ eligible }} aventi diritto · {{ quorum.label }}{% if quorum.minimum %} · Minimo {{ quorum.minimum }}{% endif %}</p>
+      {% if quorum_failed %}<p>Quorum costitutivo non raggiunto.</p>{% endif %}
+      <p>{{ assembly.direct }} in proprio · {{ assembly.represented }} per sola rappresentanza · {{ assembly.absent }} non computati · {{ assembly.members }} associati totali</p>
+    {% else %}
+      <h2 id="voting-quorum">{% if quorum_failed %}Quorum non raggiunto{% elif quorum.minimum %}Quorum raggiunto{% else %}Quorum libero{% endif %}</h2>
+      <p>{{ quorum.counted }} votanti su {{ eligible }} aventi diritto · {{ quorum.label }}{% if quorum.minimum %} · Minimo {{ quorum.minimum }}{% endif %}</p>
+      <p>{% if quorum_failed %}Gli esiti non sono validi per il quorum impostato.{% else %}Votazione valida secondo il quorum impostato.{% endif %}</p>
+    {% endif %}
   {% else %}
     <h2 id="voting-quorum">Quorum non configurato</h2>
     <p>Lo scrutinio riporta i conteggi acquisiti.</p>
@@ -11,7 +19,7 @@
 <div{% if quorum_failed %} class="results-muted"{% endif %}>
   <div class="stats">
     <div class="card"><strong>{{ eligible }}</strong><span>Aventi diritto</span></div>
-    <div class="card"><strong>{{ total }}</strong><span>Votanti</span></div>
+    <div class="card"><strong>{{ total }}</strong><span>{% if assembly %}Schede elettroniche{% else %}Votanti{% endif %}</span></div>
     <div class="card"><strong>{{ blank }}</strong><span>Schede bianche</span></div>
   </div>
   <div class="stack">
@@ -22,8 +30,12 @@
         {% if item.outcome_label %}<p class="outcome-label"><strong>{{ item.outcome_label }}</strong></p>{% endif %}
       </div>
       <p>Schede con risposta {{ item.answered }} su {{ total }} · Senza risposta {{ item.omitted }}</p>
-      {% if item.quorum.minimum %}<p>Quorum del quesito · {{ item.quorum.label }} · Minimo {{ item.quorum.minimum }} risposte</p>{% endif %}
+      {% if item.quorum %}<p{% if not item.quorum.met %} class="quorum-failed"{% endif %}>Quorum del quesito · {{ item.quorum.label }} · {{ item.quorum.counted }} risposte{% if item.quorum.minimum %} · Minimo {{ item.quorum.minimum }}{% endif %}</p>{% endif %}
       {% if item.approval_minimum %}<p>Favorevoli necessari per l’approvazione {{ item.approval_minimum }} su {{ item.answered }} risposte, astenuti inclusi.</p>{% endif %}
+      {% if item.deliberative %}
+        <p>{{ item.matter }} · {{ item.participants }} partecipanti aventi diritto · {{ item.no_choice }} senza scelta</p>
+        {% if item.deliberative.minimum != None %}<p>{{ item.deliberative.criterion }} · {{ item.deliberative.label }} · Denominatore {{ item.deliberative.denominator }} · Minimo {{ item.deliberative.minimum }} favorevoli</p>{% endif %}
+      {% endif %}
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">Opzione</th><th scope="col">Preferenze</th></tr></thead>

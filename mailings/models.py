@@ -8,6 +8,8 @@ from django.utils import timezone
 
 class MailKind(models.TextChoices):
     INVITE = "invite", "Inviti"
+    EARLY = "early", "Apertura per deleghe"
+    VOTE_OPEN = "voteopen", "Apertura del voto"
     REMINDER = "reminder", "Solleciti ai non votanti"
     RESEND = "resend", "Reinvio individuale"
     PROXY = "proxy", "Link di voto per delega"
@@ -42,6 +44,7 @@ class DeliveryReason(models.TextChoices):
     FREQUENCY = "frequency", "Intervallo fra solleciti ancora in corso"
     PENDING = "pending", "Invio già in corso o in coda"
     ALREADY_INVITED = "already_invited", "Invito già inviato o con esito incerto"
+    EARLY_ENDED = "early_ended", "Fase anticipata per le deleghe terminata"
     CANCELLED = "cancelled", "Annullato dall’amministratore"
     TRANSIENT = "smtp_temporary", "Errore temporaneo SMTP"
     PERMANENT = "smtp_permanent", "Errore permanente SMTP"
@@ -87,6 +90,11 @@ class ReminderCampaign(models.Model):
                 fields=("election",),
                 condition=Q(kind=MailKind.RESULTS),
                 name="mailings_one_results_per_election",
+            ),
+            models.UniqueConstraint(
+                fields=("election", "kind"),
+                condition=Q(kind__in=(MailKind.EARLY, MailKind.VOTE_OPEN)),
+                name="mailings_one_notice_per_opening",
             ),
         )
 

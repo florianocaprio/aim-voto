@@ -5,8 +5,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from voting import proxy_access
-from voting.models import Delegation
-from voting.services import database_now, lock_election
+from voting.models import Delegation, Election
+from voting.services import database_now, is_delegation_phase, lock_election
 
 from .campaigns import active_link, exclusion, recipients, render_body, window_exclusion
 from .models import (
@@ -56,6 +56,8 @@ def _claim(delivery_id, election_id):
     )
     now = database_now()
     if delivery is None or delivery.available_at > now:
+        return None
+    if delivery.kind == MailKind.PROXY and is_delegation_phase(election, now):
         return None
     if delivery.campaign.state == CampaignState.CANCELLED:
         _skip(delivery, DeliveryReason.CANCELLED, now)
@@ -150,9 +152,13 @@ def _finish(prepared, election_id, outcome):
 
 
 def process_next():
+    now = timezone.now()
     candidate = (
-        EmailDelivery.objects.filter(
-            state=DeliveryState.QUEUED, available_at__lte=timezone.now()
+        EmailDelivery.objects.filter(state=DeliveryState.QUEUED, available_at__lte=now)
+        .exclude(
+            kind=MailKind.PROXY,
+            campaign__election__status=Election.Status.DELEGATIONS,
+            campaign__election__closes_at__gt=now,
         )
         .order_by("available_at", "pk")
         .values_list("pk", "campaign__election_id")

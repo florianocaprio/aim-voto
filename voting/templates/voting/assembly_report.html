@@ -1,30 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Rapporto assembleare{% endblock %}
+{% block title %}Verbale assembleare{% endblock %}
 {% block content %}
 <a class="back" href="{% if election.status == 'tallied' %}{% url 'voting:results' election.pk %}{% else %}{% url 'voting:detail' election.pk %}{% endif %}">{{ election.title }}</a>
-<div class="page-heading"><div><p class="mode">Consultazione {{ election.pk }}</p><h1>Rapporto assembleare</h1></div></div>
-<div class="sections">
-  <section class="card stack">
-    <h2>Quorum statutario</h2>
-    {% if quorum %}<p class="muted">Ultimo salvataggio {{ quorum.updated_at|date:"d/m/Y H:i:s T" }}.</p>
-    {% else %}<p class="muted">Quorum da configurare.</p>{% endif %}
-    <form method="post" class="stack">{% csrf_token %}
-      {{ form.as_div }}
-      <div><button class="button">Salva quorum</button></div>
-    </form>
-  </section>
-  <section class="card stack">
-    <h2>Esportazione</h2>
+<div class="page-heading"><div><p class="mode">Consultazione {{ election.pk }}</p><h1>Verbale assembleare</h1></div></div>
+<section class="card stack narrow">
     <p>{{ legal_note }}</p>
     {% if election.status == "tallied" %}
       <p>Il pacchetto contiene il PDF, i prospetti di supporto e il manifesto SHA-256 di tutti i file.</p>
-      <div class="actions">
-        <a class="button" href="{% url 'voting:export' election.pk 'rapporto-assembleare-pdf' %}">Scarica rapporto PDF</a>
-        <a class="button secondary" href="{% url 'voting:export' election.pk 'rapporto-assembleare-zip' %}">Scarica pacchetto con impronte</a>
-      </div>
+      <form method="post" class="stack">
+        {% csrf_token %}
+        {{ form.as_div }}
+        <p class="muted">I dati del verbale vengono salvati per questa consultazione anche al download.</p>
+        <div class="actions">
+          <button class="button" type="submit" name="download" value="pdf">Scarica verbale PDF</button>
+          <button class="button secondary" type="submit" name="download" value="docx">Scarica verbale Word</button>
+          <button class="button secondary" type="submit" name="download" value="preview" formtarget="_blank">Anteprima verbale</button>
+          <button class="button secondary" type="submit" name="download" value="zip">Scarica pacchetto con impronte</button>
+          <button class="button secondary" type="submit" name="download" value="save">Salva dati del verbale</button>
+        </div>
+      </form>
     {% else %}
       <p>I file saranno disponibili dopo la pubblicazione dello scrutinio.</p>
     {% endif %}
-  </section>
-</div>
+</section>
 {% endblock %}

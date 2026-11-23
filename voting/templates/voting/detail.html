@@ -22,12 +22,24 @@
 <div class="sections">
   <section class="card stack">
     <h2>Scheda e documenti</h2>
-    {% if election.voting_quorum %}<p>Quorum della votazione · {{ election.get_voting_quorum_display }}</p>{% endif %}
+    {% if assembly_rules %}
+      <p>{{ assembly_rules.type_label }} · {{ assembly_rules.convocation_label }}</p>
+      <p>Quorum costitutivo dell’assemblea · {{ assembly_rules.constitution_label }} · {{ assembly_rules.members }} associati</p>
+    {% elif assembly_error %}
+      <p class="alert warning">{{ assembly_error }}</p>
+    {% endif %}
     <p>{% if election.allow_replacement %}Sostituzione consentita fino alla chiusura.{% else %}Sostituzione disabilitata.{% endif %}</p>
     <ol class="list">
-      {% for question in questions %}
+      {% for question, rule in questions %}
         <li>{% if election.status == "draft" %}<a href="{% url 'voting:question_edit' election.pk question.pk %}">{{ question.text }}</a>{% else %}{{ question.text }}{% endif %}
-          <small>{{ question.get_kind_display }}{% if question.voting_quorum %} · Quorum del quesito {{ question.get_voting_quorum_display }}{% endif %}</small></li>
+          <small>{{ question.get_kind_display }}</small>
+          <small>Quorum del quesito · {{ rule.label }}{% if rule.minimum %} · Minimo {{ rule.minimum }} risposte{% endif %}</small>
+          {% if rule.matter %}
+            <small>{{ rule.matter.type_label }} · {{ rule.matter.rule_label }}</small>
+          {% elif question.deliberative_majority %}
+            <small>{{ question.get_deliberative_majority_display }}{% if question.majority_override %} · {{ question.majority_override }} · {{ question.get_majority_basis_display }}{% endif %}</small>
+          {% endif %}
+        </li>
       {% empty %}
         <li>Nessun quesito.</li>
       {% endfor %}
@@ -49,38 +61,50 @@
       {% else %}
         <a class="button secondary" href="{% url 'voting:voters' election.pk %}">Elettori della votazione</a>
       {% endif %}
-      {% if election.opened_at %}<a class="button secondary" href="{% url 'voting:manage_assembly' election.pk %}">Presenze e deleghe</a>{% endif %}
-      {% if is_open %}
+      {% if election.opened_at or election.delegations_opened_at %}<a class="button secondary" href="{% url 'voting:manage_assembly' election.pk %}">Presenze e deleghe</a>{% endif %}
+      {% if user.is_superuser %}
+        {% if is_open %}
         <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Prepara inviti email</a>
         <a class="button" href="{% url 'mailings:remind' election.pk %}">Invia sollecito ai non votanti</a>
-      {% elif election.status == "draft" or election.status == "scheduled" %}
+        {% elif election.status == "draft" or election.status == "scheduled" %}
         <a class="button secondary" href="{% url 'mailings:invite' election.pk %}">Anteprima email di invito</a>
+        {% endif %}
       {% endif %}
-      {% if election.opened_at %}<a class="button secondary" href="{% url 'mailings:history' election.pk %}">Storico invii</a>{% endif %}
+      {% if election.opened_at or election.delegations_opened_at %}<a class="button secondary" href="{% url 'mailings:history' election.pk %}">Storico invii</a>{% endif %}
     </div>
   </section>
 </div>
 <section class="card stack lifecycle">
   <h2>Stato della consultazione</h2>
+  {% if not election.assembly_type and election.voting_quorum and election.voting_quorum != "free" %}
+    <p>Soglia complessiva di partecipazione · {{ election.get_voting_quorum_display }}</p>
+  {% endif %}
+  {% if delegation_phase %}<p>Gli elettori possono gestire le deleghe e leggere i PDF dal link personale.{% if election.opens_at %} La votazione si aprirà all’orario previsto.{% endif %}</p>{% endif %}
   <div class="actions">
+  {% if user.is_superuser and election.allow_delegations %}
+    {% if election.status == "draft" or election.status == "scheduled" %}
+      <a class="button secondary" href="{% url 'voting:transition' election.pk 'apri-deleghe' %}">Apri per delega</a>
+    {% endif %}
+  {% endif %}
   {% if election.status == "draft" %}
-    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri ora</a>
-    <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Quorum assembleare</a>
+    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri per votazione</a>
     {% if election.opens_at %}<a class="button secondary" href="{% url 'voting:transition' election.pk 'programma' %}">Programma l’apertura</a>{% endif %}
     <a class="button danger" href="{% url 'voting:transition' election.pk 'elimina' %}">Elimina bozza</a>
   {% elif election.status == "scheduled" %}
-    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri ora</a>
+    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri per votazione</a>
     <a class="button secondary" href="{% url 'voting:transition' election.pk 'bozza' %}">Riporta in bozza</a>
+  {% elif election.status == "delegations" %}
+    <a class="button" href="{% url 'voting:transition' election.pk 'apri' %}">Apri per votazione</a>
   {% elif election.status == "open" %}
     <a class="button" href="{% url 'voting:transition' election.pk 'chiudi' %}">Chiudi la consultazione</a>
   {% elif election.status == "closed" %}
-    <a class="button" href="{% url 'voting:transition' election.pk 'scrutina' %}">Pubblica lo scrutinio</a>
-    <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Quorum assembleare</a>
+    {% if not assembly_rules or verification %}<a class="button" href="{% url 'voting:transition' election.pk 'scrutina' %}">Pubblica lo scrutinio</a>{% endif %}
+    {% if assembly_rules %}<a class="button secondary" href="{% url 'voting:verify_assembly' election.pk %}">{% if verification %}Rettifica la verifica{% else %}Verifica la partecipazione{% endif %}</a>{% endif %}
   {% elif election.status == "tallied" %}
     <a class="button" href="{% url 'voting:results' election.pk %}">Risultati e report</a>
     <a class="button danger" href="{% url 'voting:transition' election.pk 'elimina-pubblicata' %}">Elimina consultazione</a>
   {% endif %}
-  {% if election.status == "scheduled" or election.status == "open" or election.status == "closed" %}
+  {% if election.status == "scheduled" or election.status == "delegations" or election.status == "open" or election.status == "closed" %}
     <a class="button danger" href="{% url 'voting:transition' election.pk 'annulla' %}">Annulla consultazione</a>
   {% endif %}
   </div>

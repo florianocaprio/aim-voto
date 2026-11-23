@@ -37,7 +37,7 @@
       <p>Avviata da {{ campaign.author.get_username|default:"Account rimosso" }} il {{ campaign.confirmed_at|date:"d/m/Y H:i" }}.</p>
       {% if campaign.cancelled_at %}<p>Campagna annullata il {{ campaign.cancelled_at|date:"d/m/Y H:i" }}.</p>{% endif %}
       <p>Oggetto: {{ campaign.subject }}</p>
-      <details><summary>Modello del messaggio</summary>{{ campaign.body|linebreaks }}</details>
+      {% if user.is_superuser %}<details><summary>Modello del messaggio</summary>{{ campaign.body|linebreaks }}</details>{% endif %}
       <div class="actions">
         <a class="button secondary" href="{% url 'mailings:campaign' election.pk campaign.pk %}">Aggiorna esiti</a>
         {% if counts.queued %}

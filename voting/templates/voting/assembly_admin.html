@@ -4,6 +4,7 @@
 <a class="back" href="{% url 'voting:detail' election.pk %}">{{ election.title }}</a>
 <div class="page-heading"><div><h1>Presenze e deleghe</h1><p class="muted">{{ election.title }}</p></div></div>
 <div class="stack">
+  {% if election.opened_at %}
   <section class="card stack">
     <div class="page-heading"><h2>Presenze registrate · {{ presences.paginator.count }}</h2><a class="button secondary" href="{% url 'voting:presence_csv' election.pk %}">Scarica presenze CSV</a></div>
     <div class="table-wrap"><table>
@@ -20,6 +21,7 @@
     </nav>
     {% endif %}
   </section>
+  {% endif %}
   <section class="card stack">
     <h2>Deleghe</h2>
     {% if election.allow_delegations %}

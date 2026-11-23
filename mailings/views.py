@@ -11,9 +11,10 @@ from django.views.decorators.http import (
     require_safe,
 )
 
-from voting.access import administrator
+from config.auth import superadmin_required
+from voting.access import election_administrator
 from voting.models import Election
-from voting.services import is_open
+from voting.services import is_delegation_phase, is_open
 
 from .campaigns import (
     INVITATION_TEMPLATE_STATES,
@@ -83,7 +84,8 @@ def _editor(request, election_id, kind, voter_id=None):
             else kind.label,
             "voter": voter,
             "form": form,
-            "open": is_open(election),
+            "open": is_open(election)
+            or (kind == MailKind.RESEND and is_delegation_phase(election)),
             "editing_template": editing_template,
             "sample_subject": model.subject,
             "sample_body": render_body(model, sample_voter, PREVIEW_LINK),
@@ -91,25 +93,25 @@ def _editor(request, election_id, kind, voter_id=None):
     )
 
 
-@administrator
+@superadmin_required
 @require_http_methods(["GET", "POST", "HEAD"])
 def invite(request, election_id):
     return _editor(request, election_id, MailKind.INVITE)
 
 
-@administrator
+@superadmin_required
 @require_http_methods(["GET", "POST", "HEAD"])
 def remind(request, election_id):
     return _editor(request, election_id, MailKind.REMINDER)
 
 
-@administrator
+@superadmin_required
 @require_http_methods(["GET", "POST", "HEAD"])
 def resend(request, election_id, voter_id):
     return _editor(request, election_id, MailKind.RESEND, voter_id)
 
 
-@administrator
+@election_administrator
 @require_safe
 def history(request, election_id):
     election = get_object_or_404(Election, pk=election_id)
@@ -132,6 +134,7 @@ def history(request, election_id):
         {
             "election": election,
             "campaigns": campaigns,
+            "voting_open": is_open(election),
             "interval_form": IntervalForm(
                 initial={"hours": election.reminder_interval_hours}
             ),
@@ -139,7 +142,7 @@ def history(request, election_id):
     )
 
 
-@administrator
+@election_administrator
 @require_safe
 def campaign_detail(request, election_id, campaign_id):
     election = get_object_or_404(Election, pk=election_id)
@@ -147,7 +150,7 @@ def campaign_detail(request, election_id, campaign_id):
         election.campaigns.select_related("author"), pk=campaign_id
     )
     preview = campaign.state == CampaignState.PREVIEW
-    if preview and campaign.author_id != request.user.pk:
+    if preview and not request.user.is_superuser:
         raise Http404()
     rows = list(
         campaign.deliveries.select_related("voter").order_by(
@@ -187,7 +190,7 @@ def campaign_detail(request, election_id, campaign_id):
     )
 
 
-@administrator
+@superadmin_required
 @require_POST
 def confirm(request, election_id, campaign_id):
     get_object_or_404(Election, pk=election_id)
@@ -198,7 +201,7 @@ def confirm(request, election_id, campaign_id):
     return redirect("mailings:campaign", election_id, campaign_id)
 
 
-@administrator
+@election_administrator
 @require_POST
 def cancel(request, election_id, campaign_id):
     get_object_or_404(Election, pk=election_id)
@@ -206,7 +209,7 @@ def cancel(request, election_id, campaign_id):
     return redirect("mailings:campaign", election_id, campaign_id)
 
 
-@administrator
+@election_administrator
 @require_POST
 def interval(request, election_id):
     get_object_or_404(Election, pk=election_id)

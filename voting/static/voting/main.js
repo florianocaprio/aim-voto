@@ -1,5 +1,41 @@
 "use strict";
 
+const administratorScope = document.querySelector("[data-administrator-scope]");
+if (administratorScope) {
+  const scope = administratorScope.elements.scope;
+  const assignments = administratorScope.querySelector("[data-assigned-elections]");
+  const showAssignments = () => {
+    assignments.hidden = scope.value === "global";
+    for (const checkbox of assignments.querySelectorAll("input[type=checkbox]")) {
+      checkbox.disabled = assignments.hidden;
+    }
+  };
+  scope.addEventListener("change", showAssignments);
+  showAssignments();
+}
+
+const questionRules = document.querySelector("[data-question-rules]");
+if (questionRules) {
+  const { deliberative_majority: majority, majority_override: fraction, majority_basis: basis,
+    deliberation_type: matter, kind } = questionRules.elements;
+  const presets = JSON.parse(document.getElementById("question-presets").textContent);
+  const updateRuleFields = () => {
+    const isMotion = (kind.value === "motion" || kind.value === "motion_req") && matter?.value !== "advisory";
+    const isQualified = isMotion && majority.value === "QUALIFIED_MAJORITY";
+    for (const [field, visible] of [[majority, isMotion], [fraction, isQualified], [basis, isQualified]]) {
+      field.parentElement.hidden = !visible && field.getAttribute("aria-invalid") !== "true";
+    }
+  };
+  matter?.addEventListener("change", () => {
+    const preset = presets[matter.value || "ordinary"];
+    if (preset) [majority.value, fraction.value, basis.value] = preset;
+    updateRuleFields();
+  });
+  kind.addEventListener("change", updateRuleFields);
+  majority.addEventListener("change", updateRuleFields);
+  updateRuleFields();
+}
+
 const redemption = document.querySelector("[data-redeem]");
 
 if (redemption) {
@@ -115,15 +151,20 @@ if (delegateSearch) {
       }
       for (const candidate of data.candidates) {
         const item = document.createElement("li");
-        const link = document.createElement("a");
-        link.href = candidate.url;
-        link.textContent = candidate.first_name + " " + candidate.last_name + " · " + candidate.external_id;
-        item.append(link);
+        const label = document.createElement(candidate.url ? "a" : "span");
+        label.textContent = candidate.first_name + " " + candidate.last_name + " · " + candidate.external_id;
+        if (candidate.url) label.href = candidate.url;
+        item.append(label);
+        if (candidate.unavailable) {
+          const notice = document.createElement("small");
+          notice.textContent = candidate.unavailable;
+          item.append(notice);
+        }
         results.append(item);
       }
       results.hidden = data.candidates.length === 0;
       status.textContent = data.candidates.length
-        ? "Seleziona il socio."
+        ? (data.candidates.some((candidate) => candidate.url) ? "Seleziona il socio." : "Cerca un altro socio.")
         : "Nessun risultato. Prova con un altro nome o matricola.";
     } catch {
       if (!controller.signal.aborted) status.textContent = "Ricerca non disponibile. Riprova.";

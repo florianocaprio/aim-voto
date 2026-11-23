@@ -11,15 +11,57 @@ MAX_ELECTORATE_SIZE = 2000
 
 class VotingQuorum(models.TextChoices):
     FREE = "free", "Libero (nessuna soglia minima)"
-    THIRD = "1/3", "1/3 degli aventi diritto"
-    HALF = "1/2", "1/2 degli aventi diritto"
+    THREE_QUARTERS = "3/4", "3/4 degli aventi diritto"
     TWO_THIRDS = "2/3", "2/3 degli aventi diritto"
+    HALF = "1/2", "1/2 degli aventi diritto"
+    THIRD = "1/3", "1/3 degli aventi diritto"
+
+
+class AssemblyKind(models.TextChoices):
+    ORDINARY = "ordinary", "Ordinaria"
+    EXTRAORDINARY = "extraordinary", "Straordinaria"
+
+
+class Convocation(models.IntegerChoices):
+    FIRST = 1, "Prima convocazione"
+    SECOND = 2, "Seconda convocazione"
+
+
+class DeliberationKind(models.TextChoices):
+    ORDINARY = "ordinary", "Deliberazione ordinaria"
+    STATUTE = "statute", "Modifica statutaria"
+    LEGAL_PERSON = "legal_person", "Acquisto della personalità giuridica"
+    REORGANIZATION = "reorganization", "Trasformazione, fusione o scissione"
+    DISSOLUTION = "dissolution", "Scioglimento e devoluzione del patrimonio"
+    ADVISORY = "advisory", "Consultazione non deliberativa"
+    CUSTOM = "custom", "Quorum personalizzato"
+
+
+class ConstitutiveQuorum(models.TextChoices):
+    FREE = "LIBERO", "Libero (nessuna soglia minima)"
+    ABSOLUTE = "MAGGIORANZA_ASSOLUTA", "Più della metà degli aventi diritto"
+    FRACTION = "FRAZIONE_PERSONALIZZATA", "Frazione degli aventi diritto"
+    FIXED = "NUMERO_MINIMO", "Numero minimo di votanti"
+
+
+class DeliberativeMajority(models.TextChoices):
+    VOTES_CAST = "VOTES_CAST_MAJORITY", "Maggioranza dei voti espressi"
+    PRESENT_ABSOLUTE = "PRESENT_ABSOLUTE_MAJORITY", "Maggioranza assoluta dei presenti"
+    QUALIFIED = "QUALIFIED_MAJORITY", "Maggioranza qualificata"
+
+
+class QuorumBasis(models.TextChoices):
+    ELIGIBLE = "eligible", "Aventi diritto"
+    EXPRESSED = "expressed", "Voti validamente espressi (favorevoli e contrari)"
+    PARTICIPANTS = "participants", "Partecipanti aventi diritto al quesito"
+    MEMBERS = "members", "Tutti gli associati"
 
 
 class Election(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Bozza"
         SCHEDULED = "scheduled", "Programmata"
+        DELEGATIONS = "delegations", "Aperta per deleghe"
         OPEN = "open", "Aperta"
         CLOSED = "closed", "Chiusa"
         TALLIED = "tallied", "Scrutinata"
@@ -37,12 +79,27 @@ class Election(models.Model):
     )
     opens_at = models.DateTimeField(null=True, blank=True)
     closes_at = models.DateTimeField()
+    delegations_opened_at = models.DateTimeField(null=True, editable=False)
     opened_at = models.DateTimeField(null=True, editable=False)
     ended_at = models.DateTimeField(null=True, editable=False)
     allow_replacement = models.BooleanField(default=True)
     allow_delegations = models.BooleanField(default=False)
     require_presence = models.BooleanField(default=False)
     voting_quorum = models.CharField(max_length=4, choices=VotingQuorum, blank=True)
+    assembly_type = models.CharField(max_length=16, choices=AssemblyKind, blank=True)
+    convocation = models.PositiveSmallIntegerField(choices=Convocation, default=1)
+    total_members = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)], null=True, blank=True
+    )
+    constitutive_override = models.CharField(max_length=14, blank=True)
+    allow_custom_quorum = models.BooleanField(default=False)
+    assembly_snapshot = models.JSONField(null=True, editable=False)
+    minutes_president = models.CharField(max_length=180, blank=True)
+    minutes_secretary = models.CharField(max_length=180, blank=True)
+    minutes_signing_city = models.CharField(max_length=180, blank=True)
+    minutes_signing_date = models.DateField(null=True, blank=True)
+    minutes_agenda = models.TextField(max_length=6000, blank=True)
+    minutes_discussion = models.TextField(max_length=20000, blank=True)
     reminder_interval_hours = models.PositiveSmallIntegerField(default=24)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -136,6 +193,41 @@ class AssemblyQuorum(models.Model):
         return (scaled + denominator - 1) // denominator
 
 
+class ElectionAdministrator(models.Model):
+    """A staff account limited to its assigned elections."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="election_administration",
+    )
+    elections = models.ManyToManyField(Election, blank=True, related_name="+")
+
+
+class AssemblyVerification(models.Model):
+    election = models.ForeignKey(
+        Election, on_delete=models.CASCADE, related_name="assembly_verifications"
+    )
+    revision = models.PositiveIntegerField()
+    president = models.CharField(max_length=180)
+    reference = models.CharField(max_length=300)
+    correction_reason = models.CharField(max_length=500, blank=True)
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL
+    )
+    verified_at = models.DateTimeField()
+    participation = models.JSONField()
+    result = models.JSONField()
+
+    class Meta:
+        ordering = ("-revision",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("election", "revision"), name="assembly_verification_revision"
+            ),
+        )
+
+
 class Question(models.Model):
     class Kind(models.TextChoices):
         MOTION_REQUIRED = "motion_req", "Favorevole / Contrario / Astenuto"
@@ -151,6 +243,19 @@ class Question(models.Model):
     kind = models.CharField(max_length=16, choices=Kind)
     max_choices = models.PositiveSmallIntegerField(default=1)
     voting_quorum = models.CharField(max_length=4, choices=VotingQuorum, blank=True)
+    deliberation_type = models.CharField(
+        max_length=16, choices=DeliberationKind, blank=True
+    )
+    constitutive_quorum = models.CharField(
+        max_length=24, choices=ConstitutiveQuorum, blank=True
+    )
+    constitutive_fraction = models.CharField(max_length=14, blank=True)
+    minimum_voters = models.PositiveSmallIntegerField(null=True, blank=True)
+    deliberative_majority = models.CharField(
+        max_length=28, choices=DeliberativeMajority, blank=True
+    )
+    majority_override = models.CharField(max_length=14, blank=True)
+    majority_basis = models.CharField(max_length=12, choices=QuorumBasis, blank=True)
 
     class Meta:
         ordering: ClassVar = ["pk"]

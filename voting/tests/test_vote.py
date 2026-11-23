@@ -38,7 +38,7 @@ from .support import (
 @override_settings(REQUIRE_ADMIN_MFA=False)
 class VotingViewsTests(TestCase):
     def setUp(self):
-        self.actor = staff()
+        self.actor = staff(superadmin=True)
         self.election, self.question, self.options = election_with_motion(self.actor)
         self.voter, self.other = open_election(self.election, add_members(2))
         self.admin = Client()

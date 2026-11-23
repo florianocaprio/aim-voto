@@ -20,6 +20,7 @@
     {% if user.is_staff %}
       <nav aria-label="Gestione">
         <a href="{% url 'voting:dashboard' %}">Consultazioni</a>
+        {% if user.is_superuser %}<a href="{% url 'voting:administrators' %}">Amministratori</a>{% endif %}
         <form method="post" action="{% url 'staff_logout' %}">{% csrf_token %}<button class="nav-button">Esci</button></form>
       </nav>
     {% endif %}

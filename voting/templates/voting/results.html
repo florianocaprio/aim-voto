@@ -5,10 +5,17 @@
 <h1>Risultati e report</h1>
 <p>{{ election.title }} · Voto {{ election.get_mode_display|lower }}</p>
 {% include "voting/results_summary.html" %}
+{% if verification %}
+<section class="card stack lifecycle">
+  <h2>Attestazione del Presidente</h2>
+  <p>{{ verification.president }} · {{ verification.reference }} · {{ verification.verified_at|date:"d/m/Y H:i:s T" }}</p>
+  <div><a class="button secondary" href="{% url 'voting:verify_assembly' election.pk %}">Rettifica la verifica</a></div>
+</section>
+{% endif %}
 <div class="actions lifecycle">
   <a class="button secondary" href="{% url 'voting:export' election.pk 'risultati-csv' %}">Risultati CSV</a>
   <a class="button secondary" href="{% url 'voting:export' election.pk 'partecipazione-csv' %}">{% if election.is_secret %}Elenco aventi diritto CSV{% else %}Elenco di partecipazione CSV{% endif %}</a>
   <a class="button" href="{% url 'voting:export' election.pk 'report-pdf' %}">Report PDF</a>
-  <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Rapporto assembleare</a>
+  <a class="button secondary" href="{% url 'voting:assembly_report' election.pk %}">Verbale assembleare</a>
 </div>
 {% endblock %}

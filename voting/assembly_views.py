@@ -4,14 +4,14 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError, transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import assembly, reports, services
-from .access import administrator
+from .access import election_administrator
 from .forms import ReceivedDelegationForm
 from .models import Delegation, DelegationAttachment, Election, VoterPresence
 from .views import SESSION_KEY, voter_context
@@ -29,11 +29,7 @@ def lock_voter(request):
 
 
 def require_direct_delegation(election):
-    if not (
-        election.require_presence
-        and election.allow_delegations
-        and services.is_open(election)
-    ):
+    if not (election.require_presence and services.delegations_open(election)):
         raise Http404
 
 
@@ -60,7 +56,7 @@ def delegation_search(request, *, received):
         )
     election = voter.election
     if received:
-        if not election.allow_delegations or not services.is_open(election):
+        if not services.delegations_open(election):
             raise Http404
         if request.method == "POST":
             messages.error(
@@ -82,8 +78,26 @@ def delegation_search(request, *, received):
     if query:
         if services.admit_request("ricerca-delegato", voter.pk, limit=60, seconds=60):
             candidates = assembly.search_delegates(voter, query)
+            at_capacity = set()
+            if candidates and not received:
+                limit = assembly.delegation_limit(election.voters.count())
+                at_capacity = set(
+                    assembly.reserved_slots(election)
+                    .filter(
+                        delegate_id__in=[candidate["pk"] for candidate in candidates]
+                    )
+                    .order_by()
+                    .values("delegate_id")
+                    .annotate(total=Count("pk"))
+                    .filter(total__gte=limit)
+                    .values_list("delegate_id", flat=True)
+                )
             for candidate in candidates:
-                candidate["url"] = reverse(selection_route, args=[candidate.pop("pk")])
+                pk = candidate.pop("pk")
+                if pk in at_capacity:
+                    candidate["unavailable"] = assembly.capacity_message(limit)
+                else:
+                    candidate["url"] = reverse(selection_route, args=[pk])
         else:
             error = "Troppi tentativi. Riprova fra un minuto."
     status = 429 if error else 200
@@ -116,19 +130,29 @@ def confirm_direct_delegation(request, delegate_pk):
     require_direct_delegation(election)
     delegate = get_object_or_404(election.voters.exclude(pk=voter.pk), pk=delegate_pk)
     error = ""
-    if request.method == "POST":
-        try:
+    try:
+        if request.method == "POST":
             if request.POST.get("confirm") != "yes":
                 raise ValidationError("Conferma la scelta per conferire la delega.")
             assembly.assign_direct_delegation(election, voter, delegate)
-        except ValidationError as exc:
-            error = exc.messages[0]
-        else:
             messages.success(
                 request,
-                "Delega conferita. Il link è stato accodato per l’invio al delegato.",
+                "Delega conferita. Il delegato riceverà il link dedicato all’apertura del voto."
+                if services.is_delegation_phase(election)
+                else "Delega conferita. Il link è stato accodato per l’invio al delegato.",
             )
             return redirect("voting:ballot")
+        if (
+            voter.delegations_given.filter(state__in=assembly.ACTIVE).exists()
+            or election.participation_records().filter(voter=voter).exists()
+        ):
+            return redirect("voting:ballot")
+        assembly.require_delegation_capacity(election, delegate.pk)
+    except assembly.DelegateAtCapacity as exc:
+        messages.error(request, exc.messages[0])
+        return redirect("voting:find_delegate")
+    except ValidationError as exc:
+        error = exc.messages[0]
     return render(
         request,
         "voting/confirm_direct_delegation.html",
@@ -145,9 +169,11 @@ def voter_assembly(request):
         action = request.POST.get("action")
         try:
             now = services.database_now()
-            if not services.is_open(election, now):
-                raise ValidationError("La consultazione è chiusa.")
             if action == "presence":
+                if not services.is_open(election, now):
+                    raise ValidationError(
+                        "La presenza si può confermare quando è aperta la votazione."
+                    )
                 services.register_presence(
                     election, voter.pk, now, VoterPresence.Source.EXPLICIT
                 )
@@ -182,15 +208,18 @@ def voter_assembly(request):
         .select_related("delegate")
         .first()
     )
-    incoming = voter.delegations_received.filter(
-        grantor__election=election
-    ).select_related("grantor")
+    incoming = (
+        voter.delegations_received.filter(grantor__election=election)
+        .select_related("grantor")
+        .annotate(exercised=Exists(assembly.ballots_cast_by_delegate(election)))
+    )
     return render(
         request,
         "voting/assembly.html",
         {
             "election": election,
             "is_open": services.is_open(election),
+            "delegations_open": services.delegations_open(election),
             "has_voted": election.participation_records().filter(voter=voter).exists(),
             "active": active,
             "last_request": voter.delegations_given.select_related("delegate").first(),
@@ -232,14 +261,17 @@ def submit_received_delegation(request, grantor_pk):
         if voter is None:
             return redirect("voting:ballot")
         election = voter.election
-    if not election.allow_delegations or not services.is_open(election):
+    if not services.delegations_open(election):
         raise Http404
     grantor = get_object_or_404(election.voters.exclude(pk=voter.pk), pk=grantor_pk)
+    limit = assembly.delegation_limit(election.voters.count())
+    reserved = assembly.reserved_slots(election, voter.pk).count()
+    at_capacity = reserved >= limit
     form = ReceivedDelegationForm(
-        request.POST if request.method == "POST" else None,
-        request.FILES or None,
+        request.POST if request.method == "POST" and not at_capacity else None,
+        request.FILES if request.method == "POST" and not at_capacity else None,
     )
-    if request.method == "POST" and form.is_valid():
+    if request.method == "POST" and not at_capacity and form.is_valid():
         if not services.admit_request(
             "delega-documentale", voter.pk, limit=8, seconds=60
         ):
@@ -269,16 +301,21 @@ def submit_received_delegation(request, grantor_pk):
             "election": election,
             "grantor": grantor,
             "form": form,
-            "reserved": assembly.reserved_slots(election, voter.pk).count(),
-            "limit": assembly.delegation_limit(election.voters.count()),
+            "reserved": reserved,
+            "limit": limit,
+            "at_capacity": at_capacity,
         },
     )
 
 
-@administrator
+@election_administrator
 @require_GET
 def manage_assembly(request, pk):
-    election = get_object_or_404(Election, pk=pk, opened_at__isnull=False)
+    election = get_object_or_404(
+        Election,
+        Q(opened_at__isnull=False) | Q(delegations_opened_at__isnull=False),
+        pk=pk,
+    )
     delegations = (
         Delegation.objects.filter(
             grantor__election=election, delegate__election=election
@@ -295,7 +332,7 @@ def manage_assembly(request, pk):
         "voting/assembly_admin.html",
         {
             "election": election,
-            "is_open": services.is_open(election),
+            "is_open": services.delegations_open(election),
             "presences": Paginator(reports.presence_records(election), 40).get_page(
                 request.GET.get("page")
             ),
@@ -305,14 +342,14 @@ def manage_assembly(request, pk):
     )
 
 
-@administrator
+@election_administrator
 @require_GET
 def presence_csv(request, pk):
     election = get_object_or_404(Election, pk=pk, opened_at__isnull=False)
     return reports.presences_csv(election)
 
 
-@administrator
+@election_administrator
 @require_GET
 def download_delegation_attachment(request, pk, delegation_pk):
     attachment = get_object_or_404(
@@ -336,7 +373,7 @@ def download_delegation_attachment(request, pk, delegation_pk):
     )
 
 
-@administrator
+@election_administrator
 @require_POST
 @transaction.atomic
 def staff_decision(request, pk, delegation_pk, action):

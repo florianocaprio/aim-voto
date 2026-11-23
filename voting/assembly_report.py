@@ -1,3 +1,4 @@
+import json
 from base64 import b64encode
 from hashlib import sha256
 from io import BytesIO
@@ -19,13 +20,15 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from . import reports
+from . import assembly_docx, reports
 from .models import AssemblyQuorum, Delegation, VoterPresence
 
-PDF_FILENAME = "Rapporto_Assembleare_AIM_VOTO.pdf"
-ZIP_FILENAME = "Rapporto_Assembleare_AIM_VOTO.zip"
+PDF_FILENAME = "Verbale_Assembleare_AIM_VOTO.pdf"
+WORD_FILENAME = "Verbale_Assembleare_AIM_VOTO.docx"
+WORD_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+ZIP_FILENAME = "Verbale_Assembleare_AIM_VOTO.zip"
 LEGAL_NOTE = (
-    "Il rapporto verifica matematicamente la soglia registrata. La qualificazione giuridica "
+    "Il verbale riporta la verifica matematica delle soglie previste dalla consultazione. La qualificazione giuridica "
     "delle partecipazioni elettroniche e la valida costituzione dell’assemblea restano da accertare "
     "secondo il procedimento concordato con il notaio."
 )
@@ -121,7 +124,7 @@ def delegations_csv(counts):
 
 
 def supporting_files(election, data, counts):
-    return {
+    files = {
         "risultati.csv": reports.aggregate_csv(election, data=data).content,
         reports.participation_filename(election): reports.participation_csv(
             election
@@ -130,6 +133,32 @@ def supporting_files(election, data, counts):
         "deleghe.csv": delegations_csv(counts),
         "scrutinio.pdf": reports.scrutiny_pdf_buffer(election, data=data).getvalue(),
     }
+    if "assembly" in data:
+        verifications = election.assembly_verifications.filter(
+            revision__lte=data["assembly"]["revision"]
+        ).values(
+            "revision",
+            "president",
+            "reference",
+            "correction_reason",
+            "verified_by_id",
+            "verified_at",
+            "participation",
+            "result",
+        )
+        files["verifica-assembleare.json"] = json.dumps(
+            {
+                "configurazione": election.assembly_snapshot,
+                "apertura": election.opened_at,
+                "chiusura": election.ended_at,
+                "matricole": dict(election.voters.values_list("pk", "external_id")),
+                "verifiche": list(verifications),
+            },
+            default=str,
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
+    return files
 
 
 def date_label(value):
@@ -138,6 +167,111 @@ def date_label(value):
         if value
         else "Data assente"
     )
+
+
+def assembly_quorum_details(election, data, counts, legacy_quorum):
+    if "assembly" in data:
+        verification = election.assembly_verifications.get(
+            revision=data["assembly"]["revision"]
+        )
+        return "Verifica assembleare", [
+            *reports.assembly_outcome_lines(data),
+            f"Presidente {verification.president} · Attestazione {verification.reference}",
+            f"Verifica registrata il {date_label(verification.verified_at)}",
+        ]
+    if data["quorum"] is not None:
+        configured = data["quorum"]
+        if configured["minimum"]:
+            state = "Raggiunto" if configured["met"] else "Non raggiunto"
+            return "Quorum della consultazione", [
+                f"{configured['label']} · Posizioni conteggiate {configured['counted']} · Minimo {configured['minimum']} · {state}"
+            ]
+    elif legacy_quorum is not None and not any(
+        row.get("quorum") for row in data["rows"]
+    ):
+        result = quorum_result(legacy_quorum, counts, data["eligible"])
+        threshold = str(legacy_quorum.threshold_numerator) + " persone"
+        if legacy_quorum.threshold_denominator:
+            threshold = f"{legacy_quorum.threshold_numerator}/{legacy_quorum.threshold_denominator} degli aventi diritto"
+        lines = [
+            f"Criterio {legacy_quorum.get_basis_display()}",
+            f"Soglia registrata {legacy_quorum.get_comparison_display().lower()} {threshold}",
+            f"Ultimo salvataggio del criterio {date_label(legacy_quorum.updated_at)} (Europe/Rome)",
+        ]
+        if legacy_quorum.reference:
+            lines.append(f"Riferimento statutario indicato {legacy_quorum.reference}")
+        outcome = "Soglia raggiunta" if result["met"] else "Soglia non raggiunta"
+        lines.append(
+            f"{outcome} - Posizioni conteggiate {result['counted']} · Minimo richiesto {result['minimum']}"
+        )
+        return "Criterio assembleare storico", lines
+    return "", []
+
+
+def minutes_content(election, data, counts, legacy_quorum, exported_at):
+    questions = []
+    for index, item in enumerate(data["rows"], start=1):
+        outcome = {"approved": "Approvata", "rejected": "Non approvata"}.get(
+            item.get("outcome"), item.get("outcome_label", "")
+        )
+        summary = (
+            f"Schede con risposta {item['answered']} su {data['total']} · "
+            f"Senza risposta {item['omitted']}"
+        )
+        if not election.is_secret:
+            summary += f" · Risposte da schede per delega {item['proxy_answered']}"
+        questions.append(
+            {
+                "title": f"Votazione {index} - {item['question']}",
+                "outcome": outcome.upper() if outcome else "",
+                "summary": summary,
+                "notes": reports.deliberation_outcome_lines(item, include_outcome=False),
+                "choices": item["choices"],
+            }
+        )
+    signing_date = election.minutes_signing_date
+    return {
+        "intro": (
+            "Il presente verbale dà conto della partecipazione e dello scrutinio "
+            f"della consultazione svolta su AIM VOTO con voto {election.get_mode_display().lower()}."
+        ),
+        "references": [
+            ["Riferimento", "Dettaglio (Europe/Rome)"],
+            ["Identificativo consultazione", str(election.pk)],
+            ["Apertura effettiva", date_label(election.opened_at)],
+            ["Chiusura effettiva", date_label(election.ended_at)],
+            ["Esportazione", date_label(exported_at)],
+        ],
+        "participation": [
+            ["Indicatore", "Numero"],
+            ["Aventi diritto nella platea", data["eligible"]],
+            ["Presenze registrate", counts["present"]],
+            ["Partecipanti unici registrati", counts["participants"]],
+            ["Schede acquisite direttamente", counts["direct"]],
+            ["Rappresentanze esercitate con scheda acquisita", counts["represented"]],
+            ["Deleghe approvate senza scheda acquisita", counts["approved_unused"]],
+            ["Presenti anche rappresentati (sovrapposizione)", counts["overlap"]],
+            ["Presenze + rappresentati, senza doppi conteggi", counts["with_proxy"]],
+            ["Schede acquisite complessive", data["total"]],
+            ["Schede bianche", data["blank"]],
+        ],
+        "participation_note": (
+            "I partecipanti unici includono le persone che hanno confermato la presenza "
+            "o inviato una scheda, propria o per delega. Una scheda bianca acquisita esercita la delega."
+        ),
+        "quorum": assembly_quorum_details(election, data, counts, legacy_quorum),
+        "legal_note": LEGAL_NOTE,
+        "questions": questions,
+        "signing_details": ", ".join(
+            filter(
+                None,
+                (
+                    election.minutes_signing_city,
+                    signing_date.strftime("%d/%m/%Y") if signing_date else "",
+                ),
+            )
+        ),
+    }
 
 
 def report_table(rows, widths, *, padding=5):
@@ -156,12 +290,12 @@ def report_table(rows, widths, *, padding=5):
     return table
 
 
-def render_pdf(election, data, counts, quorum, hashes, exported_at):
+def render_pdf(election, content, hashes):
     buffer = BytesIO()
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        title="AIM VOTO - Rapporto assembleare",
+        title="AIM VOTO - Verbale assembleare",
         author="AIM VOTO",
         leftMargin=48,
         rightMargin=48,
@@ -173,8 +307,20 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
     styles["Heading1"].textColor = INK
     styles["Heading2"].textColor = INK
     body = styles["BodyText"]
+    discussion_style = ParagraphStyle(
+        "Discussione", parent=body, spaceAfter=3 * body.leading
+    )
     digest_style = ParagraphStyle(
         "Digest", parent=body, fontName="Courier", fontSize=8, leading=10
+    )
+    outcome_style = ParagraphStyle(
+        "Esito",
+        parent=body,
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        leading=15,
+        textColor=INK,
+        spaceAfter=6,
     )
 
     def p(text):
@@ -187,108 +333,62 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
         canvas.setFillColor(INK)
         canvas.setFont("Helvetica", 8)
         canvas.drawString(
-            48, 23, f"AIM VOTO  |  Consultazione {election.pk}  |  Rapporto assembleare"
+            48, 23, f"AIM VOTO  |  Consultazione {election.pk}  |  Verbale assembleare"
         )
         canvas.drawRightString(width - 48, 23, f"Pagina {doc.page}")
 
     story = [
-        Paragraph("Rapporto assembleare", styles["Title"]),
+        Paragraph("VERBALE ASSEMBLEARE", styles["Title"]),
         Paragraph(escape(election.title), styles["Heading1"]),
-        p(f"Consultazione AIM VOTO · Voto {election.get_mode_display().lower()}"),
+    ]
+    for heading, text, style in (
+        ("Ordine del giorno", election.minutes_agenda, body),
+        ("Discussione", election.minutes_discussion, discussion_style),
+    ):
+        if text.strip():
+            story.append(Paragraph(heading, styles["Heading2"]))
+            story.append(
+                Paragraph("<br/>".join(escape(line) for line in text.splitlines()), style)
+            )
+    story += [
+        p(content["intro"]),
         Spacer(1, 7),
-        report_table(
-            [
-                ["Riferimento", "Dettaglio (Europe/Rome)"],
-                ["Identificativo consultazione", str(election.pk)],
-                ["Apertura effettiva", date_label(election.opened_at)],
-                ["Chiusura effettiva", date_label(election.ended_at)],
-                ["Esportazione", date_label(exported_at)],
-            ],
-            [200, 282],
-        ),
+        report_table(content["references"], [200, 282]),
         Spacer(1, 12),
         Paragraph("Partecipazione e rappresentanze", styles["Heading2"]),
-        report_table(
-            [
-                ["Indicatore", "Numero"],
-                ["Aventi diritto nella platea", data["eligible"]],
-                ["Presenze registrate", counts["present"]],
-                ["Partecipanti unici registrati", counts["participants"]],
-                ["Schede acquisite direttamente", counts["direct"]],
-                [
-                    "Rappresentanze esercitate con scheda acquisita",
-                    counts["represented"],
-                ],
-                ["Deleghe approvate senza scheda acquisita", counts["approved_unused"]],
-                ["Presenti anche rappresentati (sovrapposizione)", counts["overlap"]],
-                [
-                    "Presenze + rappresentati, senza doppi conteggi",
-                    counts["with_proxy"],
-                ],
-                ["Schede acquisite complessive", data["total"]],
-                ["Schede bianche", data["blank"]],
-            ],
-            [416, 66],
-        ),
-        p(
-            "I partecipanti unici includono le persone che hanno confermato la presenza "
-            "o inviato una scheda, propria o per delega. Una scheda bianca acquisita esercita la delega."
-        ),
-        Paragraph("Verifica matematica del quorum", styles["Heading2"]),
+        report_table(content["participation"], [416, 66]),
+        p(content["participation_note"]),
     ]
-    result = quorum_result(quorum, counts, data["eligible"])
-    if result is None:
-        story.append(p("Quorum non configurato. Verifica matematica non eseguita."))
-    else:
-        threshold = str(quorum.threshold_numerator) + " persone"
-        if quorum.threshold_denominator:
-            threshold = f"{quorum.threshold_numerator}/{quorum.threshold_denominator} degli aventi diritto"
-        story.extend(
-            [
-                p(f"Criterio: {quorum.get_basis_display()}"),
-                p(
-                    f"Soglia registrata: {quorum.get_comparison_display().lower()} {threshold}"
-                ),
-                p(
-                    f"Ultimo salvataggio del criterio: {date_label(quorum.updated_at)} (Europe/Rome)"
-                ),
-            ]
-        )
-        if quorum.reference:
-            story.append(p(f"Riferimento statutario indicato: {quorum.reference}"))
-        outcome = "Soglia raggiunta" if result["met"] else "Soglia non raggiunta"
-        story.append(
-            Paragraph(
-                f"<b>{outcome}</b> - Posizioni conteggiate {result['counted']} · Minimo richiesto {result['minimum']}",
-                body,
-            )
-        )
+    quorum_title, quorum_lines = content["quorum"]
+    if quorum_title:
+        story.append(Paragraph(quorum_title, styles["Heading2"]))
+        if quorum_title == "Criterio assembleare storico":
+            story.extend(p(line) for line in quorum_lines[:-1])
+            outcome, details = quorum_lines[-1].split(" - ", 1)
+            story.append(Paragraph(f"<b>{outcome}</b> - {escape(details)}", body))
+        else:
+            story.extend(p(line) for line in quorum_lines)
     story.extend(
         [
             Spacer(1, 6),
-            p(LEGAL_NOTE),
+            p(content["legal_note"]),
             PageBreak(),
             Paragraph("Esito delle votazioni", styles["Heading1"]),
         ]
     )
 
-    for index, item in enumerate(data["rows"], start=1):
-        summary = (
-            f"Schede con risposta {item['answered']} su {data['total']} · "
-            f"Senza risposta {item['omitted']}"
-        )
-        if not election.is_secret:
-            summary += f" · Risposte da schede per delega {item['proxy_answered']}"
+    for question in content["questions"]:
+        intro = [Paragraph(escape(question["title"]), styles["Heading2"])]
+        if question["outcome"]:
+            intro.append(Paragraph(escape(question["outcome"]), outcome_style))
+        intro.append(p(question["summary"]))
         story.extend(
             [
-                Paragraph(
-                    f"Votazione {index} - {escape(item['question'])}",
-                    styles["Heading2"],
-                ),
-                p(summary),
+                KeepTogether(intro),
+                *(p(line) for line in question["notes"]),
                 report_table(
                     [["Opzione", "Preferenze"]]
-                    + [[p(label), count] for label, count in item["choices"]],
+                    + [[p(label), count] for label, count in question["choices"]],
                     [394, 88],
                     padding=3,
                 ),
@@ -314,30 +414,95 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
             ]
         )
     )
-    story.extend(reports.voting_appendix(election, styles, 482))
+
+    def signature_label(role, name):
+        label = f"{role}<br/><b>{escape(name)}</b>" if name else role
+        return Paragraph(label, body)
+
+    signatures = Table(
+        [
+            [
+                signature_label("Firma del presidente", election.minutes_president),
+                "",
+                signature_label("Firma del segretario", election.minutes_secretary),
+            ],
+            ["", "", ""],
+        ],
+        colWidths=[228, 26, 228],
+        rowHeights=[None, 34],
+        hAlign="LEFT",
+    )
+    signatures.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("VALIGN", (0, 0), (-1, 0), "TOP"),
+                ("LINEBELOW", (0, 1), (0, 1), 0.6, INK),
+                ("LINEBELOW", (2, 1), (2, 1), 0.6, INK),
+            ]
+        )
+    )
+    signature_heading = [
+        Spacer(1, 16),
+        Paragraph("Sottoscrizione del verbale", styles["Heading2"]),
+    ]
+    if content["signing_details"]:
+        signature_heading.append(p(content["signing_details"]))
+    story.append(KeepTogether([*signature_heading, signatures]))
+    story.extend(
+        reports.voting_appendix(
+            election,
+            styles,
+            482,
+            title="Appendice A - Aventi diritto al voto",
+            eligible_only=True,
+        )
+    )
+    if not election.is_secret:
+        story.extend(
+            reports.voting_appendix(
+                election,
+                styles,
+                482,
+                title="Appendice B - Votanti e scelte per quesito",
+            )
+        )
     document.build(story, onFirstPage=footer, onLaterPages=footer)
     return buffer.getvalue()
 
 
-def downloadable(data, *, mimetype, filename):
+def downloadable(data, *, mimetype, filename, as_attachment=True):
     response = FileResponse(
-        BytesIO(data), content_type=mimetype, as_attachment=True, filename=filename
+        BytesIO(data), content_type=mimetype, as_attachment=as_attachment, filename=filename
     )
     digest = b64encode(sha256(data).digest()).decode("ascii")
     response["Content-Digest"] = f"sha-256=:{digest}:"
     return response
 
 
-def export(election, *, package):
+def export(election, *, kind):
     exported_at = timezone.now()
-    data = reports.tally(election)
+    data = reports.results_with_outcomes(election)
     counts = participation(election)
-    quorum = AssemblyQuorum.objects.filter(election=election).first()
+    legacy_quorum = AssemblyQuorum.objects.filter(election=election).first()
     files = supporting_files(election, data, counts)
     hashes = {name: sha256(content).hexdigest() for name, content in files.items()}
-    pdf = render_pdf(election, data, counts, quorum, hashes, exported_at)
-    if not package:
-        return downloadable(pdf, mimetype="application/pdf", filename=PDF_FILENAME)
+    content = minutes_content(election, data, counts, legacy_quorum, exported_at)
+    if kind == "docx":
+        return downloadable(
+            assembly_docx.render(election, content, hashes),
+            mimetype=WORD_MIMETYPE,
+            filename=WORD_FILENAME,
+        )
+    pdf = render_pdf(election, content, hashes)
+    if kind != "zip":
+        preview = kind == "preview"
+        return downloadable(
+            pdf,
+            mimetype="application/pdf",
+            filename=f"Anteprima_{PDF_FILENAME}" if preview else PDF_FILENAME,
+            as_attachment=not preview,
+        )
     files[PDF_FILENAME] = pdf
     hashes[PDF_FILENAME] = sha256(pdf).hexdigest()
     buffer = BytesIO()

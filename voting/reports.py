@@ -18,6 +18,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from . import quorum as quorum_rules
 from . import secret_ballots
 from .models import Question, VoterPresence, VotingQuorum
 from .services import ballot_questions
@@ -47,9 +48,16 @@ def tally(election):
         counts = Counter(choice_id for selected in selections for choice_id in selected)
         rows.append(
             {
+                "id": question.pk,
                 "question": question.text,
                 "kind": question.kind,
                 "voting_quorum": question.voting_quorum,
+                "constitutive_quorum": question.constitutive_quorum,
+                "constitutive_fraction": question.constitutive_fraction,
+                "minimum_voters": question.minimum_voters,
+                "deliberative_majority": question.deliberative_majority,
+                "majority_override": question.majority_override,
+                "majority_basis": question.majority_basis,
                 "answered": sum(bool(selected) for selected in selections),
                 "omitted": sum(not selected for selected in selections),
                 "proxy_answered": sum(
@@ -87,22 +95,71 @@ def participation_quorum(rule, eligible, counted):
 
 
 def results_with_outcomes(election):
+    if election.assembly_snapshot:
+        verification = election.assembly_verifications.first()
+        if verification is not None:
+            return verification.result
     data = tally(election)
     eligible = data["eligible"]
     quorum = participation_quorum(election.voting_quorum, eligible, data["total"])
     quorum_failed = quorum is not None and not quorum["met"]
     for row in data["rows"]:
-        question_quorum = participation_quorum(
-            row["voting_quorum"] or election.voting_quorum, eligible, row["answered"]
+        rule = quorum_rules.question_constitution_rule(
+            row["constitutive_quorum"],
+            row["constitutive_fraction"],
+            row["minimum_voters"],
+        )
+        question_quorum = (
+            quorum_rules.question_quorum_outcome(rule, eligible, row["answered"])
+            if rule is not None
+            else participation_quorum(
+                row["voting_quorum"] or election.voting_quorum,
+                eligible,
+                row["answered"],
+            )
         )
         row["quorum"] = question_quorum
         row["outcome"] = "unavailable"
+        mode = row["deliberative_majority"]
+        if mode:
+            choices = dict(row["choices"])
+            favorable, against = (
+                choices.get("Favorevole", 0),
+                choices.get("Contrario", 0),
+            )
+            majority = quorum_rules.majority_rule(
+                mode, row["majority_override"], row["majority_basis"]
+            )
+            row.update(
+                matter="Deliberazione",
+                participants=data["total"],
+                favorable=favorable,
+                against=against,
+                abstained=choices.get("Astenuto", 0),
+                no_choice=row["omitted"],
+                deliberative=quorum_rules.deliberation_outcome(
+                    majority,
+                    mode,
+                    not quorum_failed
+                    and (question_quorum is None or question_quorum["met"]),
+                    eligible=eligible,
+                    members=election.total_members,
+                    participants=data["total"],
+                    favorable=favorable,
+                    against=against,
+                ),
+            )
         if quorum_failed:
             row["outcome_label"] = "Esito non valido per mancato quorum della votazione"
+        elif question_quorum is not None and not question_quorum["met"]:
+            row["outcome_label"] = "Quorum del quesito non raggiunto"
+        elif mode:
+            if row["deliberative"]["approved"]:
+                row["outcome"], row["outcome_label"] = "approved", "Approvata"
+            else:
+                row["outcome"], row["outcome_label"] = "rejected", "Respinta"
         elif question_quorum is None:
             row["outcome_label"] = "Quorum non configurato"
-        elif not question_quorum["met"]:
-            row["outcome_label"] = "Quorum del quesito non raggiunto"
         elif not row["answered"]:
             row["outcome_label"] = "Nessuna risposta"
         elif row["kind"] in {Question.Kind.MOTION, Question.Kind.MOTION_REQUIRED}:
@@ -150,8 +207,48 @@ def csv_response(filename, rows):
     return response
 
 
+def assembly_outcome_lines(result):
+    assembly, quorum = result["assembly"], result["quorum"]
+    state = (
+        "Quorum costitutivo raggiunto"
+        if quorum["met"]
+        else "Assemblea non validamente costituita"
+    )
+    return [
+        f"Assemblea {assembly['type'].lower()} · {assembly['convocation']} · verifica {assembly['revision']}",
+        f"Configurazione v{assembly['version']} · {assembly['members']} associati · {result['eligible']} aventi diritto",
+        f"{quorum['counted']} partecipanti riconosciuti · {assembly['direct']} in proprio · {assembly['represented']} per sola rappresentanza",
+        f"{assembly['absent']} aventi diritto non computati · {result['total']} schede elettroniche",
+        f"{state} · {quorum['label']} · minimo {quorum['minimum']}",
+    ]
+
+
+def deliberation_outcome_lines(row, *, include_outcome=True):
+    result = []
+    if include_outcome and row.get("outcome_label"):
+        result.append(row["outcome_label"])
+    threshold = row.get("quorum")
+    if threshold is not None:
+        result.append(
+            f"Quorum del quesito · {threshold['label']} · {threshold['counted']} risposte · minimo {threshold['minimum']}"
+        )
+    rule = row.get("deliberative")
+    if rule is not None:
+        result.append(
+            f"{row['matter']} · {row['participants']} partecipanti aventi diritto · {row['no_choice']} senza scelta"
+        )
+        if rule["minimum"] is not None:
+            result.extend(
+                (
+                    f"{rule['criterion']} · {rule['label']}",
+                    f"Denominatore {rule['denominator']} · minimo {rule['minimum']} favorevoli",
+                )
+            )
+    return result
+
+
 def aggregate_csv(election, *, data=None):
-    result = tally(election) if data is None else data
+    result = results_with_outcomes(election) if data is None else data
     rows = [
         ["Consultazione", election.title],
         ["Aventi diritto", result["eligible"]],
@@ -170,7 +267,59 @@ def aggregate_csv(election, *, data=None):
             [item["question"], item["answered"], item["omitted"], label, count]
             for label, count in item["choices"]
         )
+    if "assembly" in result:
+        rows.append([])
+        rows.extend([line] for line in assembly_outcome_lines(result))
+    configured = [row for row in result["rows"] if has_question_rules(row)]
+    if configured:
+        rows.append(
+            [
+                "Quesito",
+                "Quorum del quesito",
+                "Minimo votanti",
+                "Esito quorum",
+                "Tipologia",
+                "Partecipanti aventi diritto al quesito",
+                "Favorevoli",
+                "Contrari",
+                "Astenuti",
+                "Senza scelta",
+                "Regola deliberativa",
+                "Soglia deliberativa",
+                "Denominatore",
+                "Minimo favorevoli",
+                "Esito",
+            ]
+        )
+        for row in configured:
+            rule = row.get("deliberative", {})
+            threshold = row.get("quorum") or {}
+            rows.append(
+                [
+                    row["question"],
+                    threshold.get("label"),
+                    threshold.get("minimum"),
+                    {True: "Raggiunto", False: "Non raggiunto"}.get(
+                        threshold.get("met")
+                    ),
+                    row.get("matter"),
+                    row.get("participants"),
+                    row.get("favorable"),
+                    row.get("against"),
+                    row.get("abstained"),
+                    row.get("no_choice"),
+                    rule.get("criterion"),
+                    rule.get("label"),
+                    rule.get("denominator"),
+                    rule.get("minimum"),
+                    row["outcome_label"],
+                ]
+            )
     return csv_response("risultati.csv", rows)
+
+
+def has_question_rules(row):
+    return "deliberative" in row or bool(row.get("constitutive_quorum"))
 
 
 def participation_filename(election):
@@ -251,35 +400,44 @@ def presences_csv(election):
     return csv_response("presenze.csv", rows)
 
 
-def voting_appendix(election, styles, width):
+def eligible_roll(election):
+    return election.voters.values_list("external_id", "first_name", "last_name")
+
+
+def named_vote_details(election):
+    questions = ballot_questions(election)
+    ballots = (
+        election.participation_records()
+        .select_related("voter", "cast_by")
+        .order_by("voter__last_name", "voter__first_name", "voter__external_id")
+    )
+    for ballot in ballots:
+        yield (
+            ballot.voter,
+            ballot.cast_by,
+            ballot_summary(questions, ballot.answers),
+            not ballot.answers,
+        )
+
+
+def voting_appendix(election, styles, width, *, title=None, eligible_only=False):
     body = styles["BodyText"]
-    if election.is_secret:
-        title = "Elenco degli aventi diritto"
+    if election.is_secret or eligible_only:
+        title = title or "Elenco degli aventi diritto"
         rows = [["Matricola", "Nome", "Cognome"]]
         rows.extend(
             [Paragraph(escape(value), body) for value in voter]
-            for voter in election.voters.values_list(
-                "external_id", "first_name", "last_name"
-            )
+            for voter in eligible_roll(election)
         )
         widths = [width * 0.22, width * 0.38, width * 0.40]
         empty = "Nessun avente diritto."
     else:
-        title = "Votanti e scelte per quesito"
+        title = title or "Votanti e scelte per quesito"
         rows = [["Elettore", "Scelte registrate"]]
-        questions = ballot_questions(election)
-        ballots = (
-            election.participation_records()
-            .select_related("voter", "cast_by")
-            .order_by("voter__last_name", "voter__first_name", "voter__external_id")
-        )
-        for ballot in ballots:
-            voter = ballot.voter
+        for voter, delegate, answers, blank in named_vote_details(election):
             name = f"<b>{escape(f'{voter.first_name} {voter.last_name}')}</b><br/>{escape(voter.external_id)}"
-            if ballot.cast_by:
-                delegate = ballot.cast_by
+            if delegate:
                 name += f"<br/>Delega esercitata da {escape(f'{delegate.first_name} {delegate.last_name}')} ({escape(delegate.external_id)})"
-            answers = ballot_summary(questions, ballot.answers)
             lines = [
                 Paragraph(
                     f"<b>{index}. {escape(question.text)}</b><br/>{escape(', '.join(choices) or 'Senza risposta')}",
@@ -287,7 +445,7 @@ def voting_appendix(election, styles, width):
                 )
                 for index, (question, choices) in enumerate(answers, start=1)
             ]
-            if not ballot.answers:
+            if blank:
                 lines.insert(0, Paragraph("Scheda bianca", body))
             rows.append([Paragraph(name, body), lines])
         widths = [width * 0.30, width * 0.70]
@@ -318,7 +476,8 @@ def voting_appendix(election, styles, width):
 
 
 def scrutiny_pdf_buffer(election, *, data=None):
-    data = tally(election) if data is None else data
+    if data is None:
+        data = results_with_outcomes(election)
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4, title="AIM Voto - Rapporto di scrutinio"
@@ -344,8 +503,18 @@ def scrutiny_pdf_buffer(election, *, data=None):
             body,
         ),
     ]
+    if "assembly" in data:
+        story.append(Paragraph("Verifica assembleare", styles["Heading2"]))
+        story.extend(
+            Paragraph(escape(line), body) for line in assembly_outcome_lines(data)
+        )
     for row in data["rows"]:
         story.append(Paragraph(escape(row["question"]), styles["Heading2"]))
+        if has_question_rules(row):
+            story.extend(
+                Paragraph(escape(line), body)
+                for line in deliberation_outcome_lines(row)
+            )
         story.append(
             Paragraph(
                 f"Schede con risposta {row['answered']} su {data['total']} · "

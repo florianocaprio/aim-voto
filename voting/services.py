@@ -7,13 +7,15 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from django.views.decorators.debug import sensitive_variables
 
-from . import secret_ballots
+from config.auth import require_superadmin
+
+from . import quorum, secret_ballots
 from .models import (
     MAX_ELECTORATE_SIZE,
     AuditEvent,
@@ -54,6 +56,21 @@ def lock_election(election_id, *, allow_missing=False):
 def is_open(election, now=None):
     now = timezone.now() if now is None else now
     return election.status == Election.Status.OPEN and now < election.closes_at
+
+
+def is_delegation_phase(election, now=None):
+    now = timezone.now() if now is None else now
+    return election.status == Election.Status.DELEGATIONS and now < election.closes_at
+
+
+def delegations_open(election, now=None):
+    return election.allow_delegations and (
+        is_delegation_phase(election, now) or is_open(election, now)
+    )
+
+
+def links_available(election, now=None):
+    return is_open(election, now) or is_delegation_phase(election, now)
 
 
 def register_presence(election, voter_id, now, source):
@@ -126,10 +143,7 @@ def personal_url(voter):
     return f"{settings.AIM_BASE_URL.rstrip('/')}{reverse('voting:access')}#{token}"
 
 
-def open_locked(election, *, actor=None, now=None):
-    now = database_now() if now is None else now
-    if election.status not in {Election.Status.DRAFT, Election.Status.SCHEDULED}:
-        raise ValidationError("La consultazione è già stata avviata.")
+def prepare_opening(election, now):
     if now >= election.closes_at:
         raise ValidationError("La scadenza è già trascorsa.")
     electorate_size = election.voters.count()
@@ -139,15 +153,74 @@ def open_locked(election, *, actor=None, now=None):
         raise ValidationError(
             f"La platea può contenere al massimo {MAX_ELECTORATE_SIZE} elettori."
         )
+    quorum.validate_minimum_voters(election, electorate_size)
+    if election.assembly_type:
+        election.assembly_snapshot = quorum.configuration(election, electorate_size)
     credentials = (
         VotingCredential(voter_id=voter_id, **credential_fields())
-        for voter_id in election.voters.values_list("pk", flat=True).iterator()
+        for voter_id in election.voters.filter(credential__isnull=True)
+        .values_list("pk", flat=True)
+        .iterator()
     )
     VotingCredential.objects.bulk_create(credentials)
+
+
+def open_delegations_locked(election, *, actor, now):
+    from mailings.campaigns import enqueue_opening_notice
+    from mailings.models import MailKind
+
+    require_superadmin(actor)
+    if not election.allow_delegations or election.status not in {
+        Election.Status.DRAFT,
+        Election.Status.SCHEDULED,
+    }:
+        raise ValidationError(
+            "L’apertura anticipata richiede una consultazione con deleghe abilitate, in bozza o programmata."
+        )
+    if election.opens_at and election.opens_at <= now:
+        raise ValidationError(
+            "L’orario previsto per il voto è già arrivato. Usa Apri per votazione."
+        )
+    prepare_opening(election, now)
+    election.delegations_opened_at = now
+    election.status = Election.Status.DELEGATIONS
+    election.save(
+        update_fields=["status", "delegations_opened_at", "assembly_snapshot"]
+    )
+    enqueue_opening_notice(election, actor, now, MailKind.EARLY)
+    audit("apertura_per_deleghe", actor=actor, election=election)
+
+
+def open_locked(election, *, actor=None, now=None):
+    now = database_now() if now is None else now
+    prior_phase = election.status == Election.Status.DELEGATIONS
+    if election.status not in {
+        Election.Status.DRAFT,
+        Election.Status.SCHEDULED,
+        Election.Status.DELEGATIONS,
+    }:
+        raise ValidationError("La consultazione è già stata avviata.")
+    if prior_phase:
+        if now >= election.closes_at:
+            raise ValidationError("La scadenza è già trascorsa.")
+    else:
+        prepare_opening(election, now)
     election.opened_at = now
     election.status = Election.Status.OPEN
-    election.save(update_fields=["opened_at", "status"])
-    audit("apertura", actor=actor, election=election)
+    election.save(update_fields=["opened_at", "status", "assembly_snapshot"])
+    audit(
+        "apertura",
+        actor=actor,
+        election=election,
+        details={"configurazione_assembleare": election.assembly_snapshot["version"]}
+        if election.assembly_snapshot
+        else None,
+    )
+    if prior_phase:
+        from mailings.campaigns import enqueue_opening_notice
+        from mailings.models import MailKind
+
+        enqueue_opening_notice(election, actor, now, MailKind.VOTE_OPEN)
 
 
 def close_locked(election, actor=None, now=None):
@@ -184,19 +257,21 @@ def delete_published_locked(election, *, actor):
 
 def advance_schedules():
     now = timezone.now()
+    waiting = (Election.Status.SCHEDULED, Election.Status.DELEGATIONS)
     candidates = Election.objects.filter(
-        status=Election.Status.SCHEDULED, opens_at__lte=now
-    ) | Election.objects.filter(status=Election.Status.OPEN, closes_at__lte=now)
+        Q(status__in=waiting, opens_at__lte=now)
+        | Q(
+            status__in=(Election.Status.DELEGATIONS, Election.Status.OPEN),
+            closes_at__lte=now,
+        )
+    )
     for election_id in candidates.values_list("pk", flat=True):
         with transaction.atomic():
             election = lock_election(election_id, allow_missing=True)
             if election is None:
                 continue
             checked_at = database_now()
-            if (
-                election.status == Election.Status.SCHEDULED
-                and election.opens_at <= checked_at
-            ):
+            if election.status in waiting:
                 if checked_at >= election.closes_at:
                     election.status = Election.Status.CANCELLED
                     election.cancellation_reason = (
@@ -207,7 +282,7 @@ def advance_schedules():
                         update_fields=["status", "cancellation_reason", "ended_at"]
                     )
                     audit("programmazione_scaduta", election=election)
-                else:
+                elif election.opens_at and election.opens_at <= checked_at:
                     open_locked(election, now=checked_at)
             elif (
                 election.status == Election.Status.OPEN
@@ -217,15 +292,21 @@ def advance_schedules():
 
 
 def copy_link(election, voter, actor):
-    if not is_open(election, database_now()):
-        raise ValidationError("La votazione è chiusa o non ancora aperta.")
+    require_superadmin(actor)
+    now = database_now()
+    if not links_available(election, now):
+        raise ValidationError(
+            "La consultazione deve essere aperta per deleghe o per votazione."
+        )
     url = personal_url(voter)
     audit("copia_link", actor=actor, election=election, voter=voter)
     return url
 
 
 def rotate_link(election, voter, actor, reason):
-    if not reason.strip() or not is_open(election, database_now()):
+    require_superadmin(actor)
+    now = database_now()
+    if not reason.strip() or not links_available(election, now):
         raise ValidationError("Serve una motivazione e una consultazione aperta.")
     credential = VotingCredential.objects.get(voter=voter)
     for name, value in credential_fields().items():

@@ -12,11 +12,17 @@
 </div>
 {% else %}
 <h1>Elettori della votazione</h1>
-<p class="muted">{% if is_open %}Apri il nome di un elettore per copiare il link personale e gestire gli invii.{% else %}Elenco degli aventi diritto di questa consultazione.{% endif %}</p>
+<p class="muted">{% if links_available and user.is_superuser %}Apri il nome di un elettore per copiare il link personale e gestire gli invii.{% else %}Elenco degli aventi diritto di questa consultazione.{% endif %}</p>
 {% endif %}
 <form method="get" class="search">
   <div><label for="search">Nome, matricola, email o cellulare</label><input id="search" name="q" value="{{ search }}" type="search" maxlength="150"></div>
-  <button class="button">Cerca</button>
+  <div class="voter-order">
+    <label for="voter-sort">Ordina per</label>
+    <select name="sort" id="voter-sort">
+      {% for value, label in sort_options %}<option value="{{ value }}"{% if value == sort %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="button">Applica</button>
 </form>
 <div class="card table-wrap">
 <table>
@@ -27,10 +33,10 @@
       <th scope="row"><a href="{% url 'voting:voter_detail' election.pk voter.pk %}">{{ voter.first_name }} {{ voter.last_name }}</a><small>{{ voter.external_id }}{% if voter.section %} · {{ voter.section }}{% endif %}</small></th>
       <td>{{ voter.email|default:"Email assente" }}<small>{{ voter.phone|default:"Cellulare assente" }}</small></td>
       <td>{{ voter.mail_label }}</td>
-      <td>{% if voter.has_voted %}Ha votato{% else %}Non ha ancora votato{% endif %}</td>
+      <td>{% include "voting/voter_participation.html" with outlined=True %}</td>
       <td>
         <div class="row-actions">
-          {% if is_open %}
+          {% if links_available and user.is_superuser %}
           <form method="post" action="{% url 'voting:copy_link' election.pk voter.pk %}" data-copy-link>{% csrf_token %}
             <button class="button secondary">Copia link personale</button>
             <p class="copy-result" role="status" hidden></p>
@@ -41,7 +47,7 @@
           {% endif %}
           {% if election.status == "draft" %}
           <a href="{% url 'voting:voter_edit' election.pk voter.pk %}">Modifica elettore</a>
-          {% elif is_open or election.status == "scheduled" %}
+          {% elif election.status == "scheduled" or links_available and user.is_superuser %}
           <a href="{% url 'voting:contact' election.pk voter.pk %}">Correggi recapiti</a>
           {% endif %}
         </div>
@@ -53,9 +59,9 @@
 </div>
 {% if page.has_other_pages %}
 <nav class="pagination" aria-label="Pagine degli elettori">
-  {% if page.has_previous %}<a href="?q={{ search|urlencode }}&amp;page={{ page.previous_page_number }}">Precedente</a>{% endif %}
+  {% if page.has_previous %}<a href="?q={{ search|urlencode }}&amp;sort={{ sort|urlencode }}&amp;page={{ page.previous_page_number }}">Precedente</a>{% endif %}
   <span>Pagina {{ page.number }} di {{ page.paginator.num_pages }}</span>
-  {% if page.has_next %}<a href="?q={{ search|urlencode }}&amp;page={{ page.next_page_number }}">Successiva</a>{% endif %}
+  {% if page.has_next %}<a href="?q={{ search|urlencode }}&amp;sort={{ sort|urlencode }}&amp;page={{ page.next_page_number }}">Successiva</a>{% endif %}
 </nav>
 {% endif %}
 {% endblock %}

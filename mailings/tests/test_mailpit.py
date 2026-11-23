@@ -37,7 +37,7 @@ class MailpitFlowTests(TransactionTestCase):
             "::1",
         }
         admin = get_user_model().objects.create(
-            username="operatore-end-to-end", is_staff=True
+            username="operatore-end-to-end", is_staff=True, is_superuser=True
         )
         self.client.force_login(admin)
         run_id = uuid4().hex[:12]

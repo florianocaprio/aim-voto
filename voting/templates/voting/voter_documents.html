@@ -1,0 +1,6 @@
+{% if documents %}
+  <section class="card stack">
+    <h2>Documenti informativi</h2>
+    <ul class="list">{% for document in documents %}<li><a href="{% url 'voting:voter_document' document.pk %}">{{ document.name }}</a></li>{% endfor %}</ul>
+  </section>
+{% endif %}

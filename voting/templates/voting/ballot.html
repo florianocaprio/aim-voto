@@ -15,15 +15,11 @@
     <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
   {% endif %}
   {% if voter and not scoped_link and election.allow_delegations %}
-    <div><a class="button {% if received_delegations and not presence_gate %}delegation-highlight{% else %}secondary{% endif %}" href="{% url 'voting:assembly' %}">Deleghe{% if received_delegations %} ({{ received_delegations }}){% endif %}</a></div>
+    <div><a class="button {% if has_delegations_to_vote and not presence_gate %}delegation-highlight{% else %}secondary{% endif %}" href="{% url 'voting:assembly' %}">Deleghe{% if received_delegations %} ({{ received_delegations }}){% endif %}</a></div>
   {% endif %}
   {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata. Matricola {{ voter.external_id }}.</p>{% endif %}
   {% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}
-  {% if documents %}
-    <section class="card stack"><h2>Documenti informativi</h2>
-      <ul class="list">{% for document in documents %}<li><a href="{% url 'voting:voter_document' document.pk %}">{{ document.name }}</a></li>{% endfor %}</ul>
-    </section>
-  {% endif %}
+  {% include "voting/voter_documents.html" %}
   {% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
   {% if turnout %}<p class="muted">Schede acquisite per {{ turnout.voted }} di {{ turnout.eligible }} aventi diritto, incluse quelle per delega.</p>{% endif %}
   {% if delegated_out %}

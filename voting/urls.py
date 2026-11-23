@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import assembly_views, views
+from . import administrators, assembly_views, views
 
 app_name = "voting"
 urlpatterns = [
@@ -35,6 +35,17 @@ urlpatterns = [
     path("scheda/conferma/", views.submit, name="submit"),
     path("scheda/documenti/<int:pk>/", views.voter_document, name="voter_document"),
     path("gestione/", views.dashboard, name="dashboard"),
+    path("gestione/amministratori/", administrators.index, name="administrators"),
+    path(
+        "gestione/amministratori/nuovo/",
+        administrators.create,
+        name="administrator_create",
+    ),
+    path(
+        "gestione/amministratori/<int:user_id>/",
+        administrators.edit,
+        name="administrator_edit",
+    ),
     path("gestione/nuova/", views.election_edit, name="create"),
     path("gestione/<int:pk>/", views.detail, name="detail"),
     path(
@@ -106,6 +117,11 @@ urlpatterns = [
         name="contact",
     ),
     path("gestione/<int:pk>/risultati/", views.results, name="results"),
+    path(
+        "gestione/<int:pk>/verifica-assembleare/",
+        views.verify_assembly,
+        name="verify_assembly",
+    ),
     path(
         "gestione/<int:pk>/rapporto-assembleare/",
         views.assembly_report_page,

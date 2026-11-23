@@ -77,7 +77,7 @@ class DocumentedDelegationTests(TestCase):
         return item
 
     def test_delegation_button_counts_approved_requests_and_highlights_when_ready(self):
-        self.grantors[0].delegations_given.create(
+        direct = self.grantors[0].delegations_given.create(
             delegate=self.delegate,
             state=Delegation.State.APPROVED,
             requested_at=timezone.now(),
@@ -101,7 +101,16 @@ class DocumentedDelegationTests(TestCase):
         page = self.client.get(delegations)
         self.assertContains(page, "<h1>Deleghe</h1>", html=True)
         self.assertNotContains(page, "Confermo la mia presenza")
-        self.assertContains(page, "Apri scheda in delega", count=2)
+        for item in (direct, documented):
+            url = reverse("voting:proxy_ballot", args=[item.pk])
+            grantor = f"{item.grantor.first_name} {item.grantor.last_name}"
+            self.assertContains(
+                page,
+                f'<a class="button" href="{url}" aria-label="ESERCITA DELEGA per {grantor}">ESERCITA DELEGA</a>',
+                html=True,
+                count=1,
+            )
+        self.assertNotContains(page, "Apri scheda in delega")
 
         proxy_ballot = reverse("voting:proxy_ballot", args=[documented.pk])
         self.assertContains(self.client.get(proxy_ballot), highlighted, html=True)
@@ -112,8 +121,19 @@ class DocumentedDelegationTests(TestCase):
         scoped.post(reverse("voting:access"), {"token": token})
         self.assertNotContains(scoped.get(proxy_ballot), f'href="{delegations}"')
 
+        NamedBallot.objects.create(
+            voter=direct.grantor, cast_by=self.delegate, answers={}
+        )
+        updated = self.client.get(delegations)
+        self.assertContains(updated, ">DELEGA ESERCITATA</a>")
+        self.assertContains(updated, ">ESERCITA DELEGA</a>")
+        self.assertContains(self.client.get(ballot), highlighted, html=True)
         self.decision(documented, "revoke")
-        self.assertContains(self.client.get(ballot), "Deleghe (1)")
+        self.assertContains(
+            self.client.get(ballot),
+            f'<a class="button secondary" href="{delegations}">Deleghe (1)</a>',
+            html=True,
+        )
 
     def test_attachment_is_validated_and_visible_only_to_staff_for_its_consultation(
         self,
@@ -205,7 +225,9 @@ class DocumentedDelegationTests(TestCase):
         self.decision(existing, "approve")
         for index in (1, 2):
             self.assertEqual(self.request(self.grantors[index]).status_code, 302)
-        self.assertContains(self.request(self.grantors[3]), "limite di 3 deleghe")
+        full = self.request(self.grantors[3])
+        self.assertContains(full, "limite di 3 deleghe")
+        self.assertNotContains(full, "Invia richiesta allo staff")
         pending = self.grantors[2].delegations_given.get()
         self.client.post(reverse("voting:voter_revoke", args=[pending.pk]))
         self.assertEqual(self.request(self.grantors[3]).status_code, 302)

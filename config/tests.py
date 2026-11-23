@@ -1,17 +1,19 @@
 from io import StringIO
 from secrets import token_urlsafe
+from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django_otp.oath import totp
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from config.logging import ServerErrorFormatter
 from members.models import Member
 from voting.models import Election, ElectionVoter, VotingCredential
 from voting.services import credential_fields, personal_url
@@ -25,6 +27,23 @@ class PrivacyHeadersTests(SimpleTestCase):
         self.assertEqual(result.status_code, 413)
         self.assertIn("no-store", result["Cache-Control"])
         self.assertEqual(result["Referrer-Policy"], "same-origin")
+
+
+    def test_server_error_log_excludes_exception_message_and_request_data(self):
+        with (
+            patch("voting.views.render", side_effect=RuntimeError("sensitive detail")),
+            self.assertLogs("django.request", level="ERROR") as captured,
+        ):
+            result = Client(raise_request_exception=False).get(
+                reverse("voting:home"), {"token": "synthetic-credential"}
+            )
+        self.assertEqual(result.status_code, 500)
+        line = ServerErrorFormatter().format(captured.records[0])
+        self.assertIn(
+            "status=500 view=voting:home error=RuntimeError source=voting.views:", line
+        )
+        self.assertNotIn("sensitive detail", line)
+        self.assertNotIn("synthetic-credential", line)
 
 
 @override_settings(REQUIRE_ADMIN_MFA=True)

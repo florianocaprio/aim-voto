@@ -8,7 +8,7 @@ Aprire il link avvia l'accesso e non costituisce voto o presenza assembleare. Il
 
 Ogni nuovo accesso elettorale valido rinnova la sessione e il token CSRF. I moduli rimasti aperti nel browser con il token precedente devono essere riaperti dal link personale.
 
-I link risultano visibili nella casella di prova di Mailpit. Proteggi il browser, la posta e la chat WhatsApp usata per l'invio manuale. Per un invio assistito verifica identità e recapito prima di copiare un link, motiva la revoca quando è necessario sostituirlo e riferisci eventuali anomalie al responsabile tecnico.
+I link risultano visibili nella casella di prova di Mailpit, che usa un accesso separato dai ruoli di AIM Voto. Proteggi il browser, la posta e la chat WhatsApp usata per l'invio manuale. Per un invio assistito verifica identità e recapito prima di copiare un link, motiva la revoca quando è necessario sostituirlo e riferisci eventuali anomalie al responsabile tecnico.
 
 ## Voto segreto
 
@@ -16,9 +16,9 @@ Una copia del solo database contiene la partecipazione nominale e le schede cifr
 
 ## Controlli applicativi
 
-Django gestisce password, verifica CSRF, cookie `HttpOnly` per la sessione e controllo dello staff. Il profilo di produzione impone HTTPS, cookie sicuri e TOTP. Gli account staff MVP hanno responsabilità nazionale. Le viste verificano l'appartenenza di elettori e risorse alla singola consultazione. Il backend convalida le schede in entrambe le modalità. Il limite per richieste sensibili usa contatori condivisi nei processi tramite PostgreSQL.
+Django gestisce password, verifica CSRF, cookie `HttpOnly` per la sessione e controllo dello staff. Il profilo di produzione impone HTTPS, cookie sicuri e TOTP. Solo i superadmin gestiscono i profili, recuperano e revocano link, avviano inviti e reinvii e correggono recapiti dopo l’apertura. I profili ordinari possono avere accesso globale o limitato alle consultazioni selezionate. Il server controlla l’assegnazione anche nelle viste di importazione, esportazione e storico invii. Il backend convalida le schede in entrambe le modalità. Il limite per richieste sensibili usa contatori condivisi nei processi tramite PostgreSQL.
 
-Django restituisce direttive anti-cache e limita il referrer alla stessa origine con `Referrer-Policy: same-origin`. Il browser trasmette soltanto l’URL senza il frammento. La policy sui contenuti limita asset e richieste allo stesso sito. Gunicorn lascia spenti i log di accesso. Il proxy di un eventuale pilota deve scartare i body, gli identificatori delle sessioni, query e percorsi contenenti credenziali, anche da analisi, errori e tracing. Mantieni disattivato il debug con qualsiasi dato operativo. I documenti allegati rientrano nei dati riservati e vanno verificati prima del caricamento.
+Django restituisce direttive anti-cache e limita il referrer alla stessa origine con `Referrer-Policy: same-origin`. Il browser trasmette soltanto l’URL senza il frammento. La policy sui contenuti limita asset e richieste allo stesso sito. Gunicorn lascia spenti i log di accesso. Il registro degli errori HTTP 5xx mostra orario UTC, stato, nome della vista, tipo di eccezione e posizione nel codice. I dati della richiesta e il messaggio dell’eccezione restano esclusi. Il proxy di un eventuale pilota deve scartare i body, gli identificatori delle sessioni, query e percorsi contenenti credenziali, anche da analisi, errori e tracing. Mantieni disattivato il debug con qualsiasi dato operativo. I documenti allegati rientrano nei dati riservati e vanno verificati prima del caricamento.
 
 ## Custodia e rotazione delle chiavi
 

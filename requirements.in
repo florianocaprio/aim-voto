@@ -5,5 +5,6 @@ django-otp
 gunicorn
 openpyxl
 psycopg[binary]
+python-docx
 reportlab
 whitenoise

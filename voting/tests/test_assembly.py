@@ -95,6 +95,8 @@ class AssemblyTests(TestCase):
         delegation = self.request_delegation(self.client, self.proxy)
         self.assertIsNotNone(delegation)
         self.assertEqual(delegation.state, Delegation.State.PENDING)
+        electorate = reverse("voting:voters", args=[self.election.pk])
+        self.assertContains(self.admin.get(electorate), "Delega inviata · in verifica")
 
         proxy = Client()
         outsider = Client()
@@ -103,10 +105,22 @@ class AssemblyTests(TestCase):
         self.assertEqual(self.proxy_review(proxy, delegation).status_code, 404)
         self.decide(self.election, delegation, "approve")
         self.assertEqual(delegation.state, Delegation.State.APPROVED)
+        self.assertContains(self.admin.get(electorate), "Delega conferita")
         self.assertEqual(self.proxy_review(outsider, delegation).status_code, 404)
         self.assertEqual(
             self.client.post(self.submit_url, {"payload": old_payload}).status_code, 409
         )
+
+        own = review(proxy, 0, self.question, self.options[2]).context["payload"]
+        self.assertContains(
+            proxy.post(self.submit_url, {"payload": own}), "Scheda corrente"
+        )
+        delegate_details = reverse(
+            "voting:voter_detail", args=[self.election.pk, self.proxy.pk]
+        )
+        pending = self.admin.get(delegate_details)
+        self.assertContains(pending, "Ha votato")
+        self.assertContains(pending, "1 delega da votare")
 
         payload = self.proxy_review(proxy, delegation).context["payload"]
         self.assertEqual(
@@ -119,9 +133,12 @@ class AssemblyTests(TestCase):
             proxy.post(self.submit_url, {"payload": payload}), "Scheda corrente"
         )
         self.assertEqual(NamedBallot.objects.get(voter=self.voter).cast_by, self.proxy)
-        own = review(proxy, 0, self.question, self.options[2]).context["payload"]
+        self.assertContains(self.admin.get(electorate), "Ha votato per delega")
+        complete = self.admin.get(delegate_details)
+        self.assertContains(complete, "<dd>Ha votato</dd>", html=True)
+        self.assertNotContains(complete, "delega da votare")
         self.assertContains(
-            proxy.post(self.submit_url, {"payload": own}), "Scheda corrente"
+            proxy.get(self.participation_url), 'class="button delegation-completed"'
         )
         self.assertEqual(NamedBallot.objects.count(), 2)
         presence = VoterPresence.objects.get()
@@ -277,11 +294,14 @@ class AssemblyTests(TestCase):
                 election.allow_delegations = True
                 election.save(update_fields=["allow_delegations"])
                 holder, *grantors = open_election(election, extra[:count])
-                for index, grantor in enumerate(grantors[: max_allowed + 1]):
+                requests = []
+                for grantor in grantors[: max_allowed + 1]:
                     client = Client()
                     self.assertEqual(redeem(client, grantor).status_code, 200)
                     delegation = self.request_delegation(client, holder, election)
                     self.assertIsNotNone(delegation)
+                    requests.append(delegation)
+                for index, delegation in enumerate(requests):
                     response = self.decide(election, delegation, "approve")
                     if index < max_allowed:
                         self.assertEqual(delegation.state, Delegation.State.APPROVED)
@@ -298,14 +318,42 @@ class AssemblyTests(TestCase):
                 )
                 last_request = grantors[max_allowed].delegations_given.get()
                 self.decide(election, last_request, "revoke")
+                warning = client.post(
+                    self.participation_url,
+                    {
+                        "action": "delegate",
+                        "external_id": holder.external_id,
+                    },
+                    follow=True,
+                )
+                self.assertContains(warning, f"limite di {max_allowed} deleghe")
+                self.assertFalse(
+                    last_request.grantor.delegations_given.filter(
+                        state__in=assembly.ACTIVE
+                    ).exists()
+                )
                 election.require_presence = True
                 election.save(update_fields=["require_presence"])
                 confirm = reverse("voting:confirm_direct_delegation", args=[holder.pk])
-                self.assertContains(
-                    client.post(confirm, {"confirm": "yes"}),
-                    f"limite di {max_allowed} deleghe",
-                    status_code=409,
+                search = reverse("voting:find_delegate")
+                (candidate,) = client.get(
+                    search, {"q": holder.external_id, "format": "json"}
+                ).json()["candidates"]
+                self.assertNotIn("url", candidate)
+                self.assertIn(
+                    f"limite di {max_allowed} deleghe", candidate["unavailable"]
                 )
+                self.assertContains(
+                    client.get(search, {"q": holder.external_id}),
+                    "Scegli un altro socio.",
+                )
+                for response in (
+                    client.get(confirm, follow=True),
+                    client.post(confirm, {"confirm": "yes"}, follow=True),
+                ):
+                    self.assertEqual(response.redirect_chain, [(search, 302)])
+                    self.assertContains(response, f"limite di {max_allowed} deleghe")
+                    self.assertContains(response, "Scegli un altro socio.")
                 previous = grantors[0].delegations_given.get()
                 self.decide(election, previous, "revoke")
                 self.assertEqual(
@@ -353,4 +401,4 @@ class ConcurrentDelegationTests(TransactionTestCase):
         with ThreadPoolExecutor(max_workers=2) as executor:
             outcomes = list(executor.map(approve, (item.pk for item in requests[2:])))
         self.assertEqual(outcomes.count("approved"), 1)
-        self.assertIn("Il delegato ha raggiunto il limite di 3 deleghe.", outcomes)
+        self.assertIn(assembly.capacity_message(3), outcomes)
