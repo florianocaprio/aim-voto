@@ -15,7 +15,7 @@ from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from mailings.models import DispatchSchedule
+from mailings.models import DispatchSchedule, MailKind
 from mailings.worker import process_next
 from members.importing import IMPORT_FIELDS
 from voting.models import Election, NamedBallot, Question
@@ -218,7 +218,44 @@ class MailpitFlowTests(TransactionTestCase):
         self.assertTrue(copy.json()["url"] == links[voters[2].email])
 
         self.transition(election, "chiudi")
+        self.assertFalse(election.campaigns.filter(kind=MailKind.RESULTS).exists())
         self.transition(election, "scrutina")
+        campaign = election.campaigns.get(kind=MailKind.RESULTS)
+        self.assertEqual(campaign.deliveries.count(), 3)
+        self.assertContains(
+            self.client.post(
+                reverse("voting:transition", args=(election.pk, "scrutina")),
+                {"confirm": "yes"},
+            ),
+            "Operazione non disponibile nello stato attuale",
+        )
+        sent_before = {mail["ID"] for mail in self.mailpit_messages(campaign.subject)}
+        for _ in voters:
+            DispatchSchedule.objects.update(next_at=timezone.now())
+            self.assertTrue(process_next())
+        emails = [
+            mail
+            for mail in self.mailpit_messages(campaign.subject)
+            if mail["ID"] not in sent_before
+        ]
+        self.assertEqual(len(emails), 3)
+        self.assertEqual({mail["To"][0]["Address"] for mail in emails}, set(links))
+        for email in emails:
+            self.assertFalse(email["Cc"])
+            self.assertFalse(email["Bcc"])
+            with urlopen(
+                f"{MAILPIT_API_URL}/view/{email['ID']}.txt", timeout=5
+            ) as response:
+                body = response.read().decode("utf-8")
+            for line in (
+                "Aventi diritto: 3",
+                "Votanti: 2",
+                "Favorevole: 1",
+                "Contrario: 1",
+                "Astenuto: 0",
+            ):
+                self.assertIn(line, body)
+            self.assertNotIn("/accedi/", body)
         results = self.client.get(reverse("voting:results", args=(election.pk,)))
         self.assertEqual(results.status_code, 200)
         self.assertEqual(results.context["total"], 2)

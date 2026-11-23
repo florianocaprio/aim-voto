@@ -1,12 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
-from voting import assembly, services
+from mailings.models import MailKind
+from voting import assembly, proxy_access, services
 from voting.models import AuditEvent, Delegation, Election, NamedBallot, VoterPresence
 
 from .support import (
@@ -122,11 +124,108 @@ class AssemblyTests(TestCase):
             proxy.post(self.submit_url, {"payload": own}), "Scheda corrente"
         )
         self.assertEqual(NamedBallot.objects.count(), 2)
-        self.assertFalse(VoterPresence.objects.exists())
+        presence = VoterPresence.objects.get()
+        self.assertEqual(presence.voter, self.proxy)
+        self.assertEqual(presence.source, VoterPresence.Source.BALLOT)
 
         denied = self.decide(self.election, delegation, "revoke")
         self.assertContains(denied, "ha già registrato una scheda")
         self.assertEqual(delegation.state, Delegation.State.APPROVED)
+
+    def test_required_presence_unlocks_ballot_and_is_registered_once(self):
+        self.election.require_presence = True
+        self.election.save(update_fields=["require_presence"])
+        ballot = reverse("voting:ballot")
+        before = self.client.get(ballot)
+        self.assertContains(before, "Conferma presenza e vai al voto")
+        self.assertNotContains(before, self.question.text)
+        self.assertEqual(
+            review(self.client, 0, self.question, self.options[0]).status_code, 409
+        )
+        self.assertFalse(VoterPresence.objects.exists())
+        self.assertRedirects(
+            self.client.post(ballot, {"action": "confirm_presence"}), ballot
+        )
+        self.assertContains(self.client.get(ballot), self.question.text)
+        payload = review(self.client, 0, self.question, self.options[0]).context[
+            "payload"
+        ]
+        self.assertContains(
+            self.client.post(self.submit_url, {"payload": payload}),
+            "Schede acquisite per 1 di 3 aventi diritto",
+        )
+        presence = VoterPresence.objects.get()
+        self.assertEqual(presence.voter, self.voter)
+        self.assertEqual(presence.source, VoterPresence.Source.EXPLICIT)
+
+    def test_search_confirm_and_cast_direct_delegation(self):
+        self.election.require_presence = True
+        self.election.save(update_fields=["require_presence"])
+        self.proxy.first_name = "Àda"
+        self.proxy.last_name = "Bianchi"
+        self.proxy.save(update_fields=["first_name", "last_name"])
+        other_election, *_ = election_with_motion(
+            self.staff, title="Consultazione separata"
+        )
+        outsider = open_election(other_election, [self.other.member])[0]
+        find = reverse("voting:find_delegate")
+        self.assertEqual(Client().get(find, {"format": "json"}).status_code, 403)
+        self.assertEqual(
+            self.client.get(
+                reverse("voting:confirm_direct_delegation", args=[outsider.pk])
+            ).status_code,
+            404,
+        )
+        (candidate,) = self.client.get(
+            find, {"q": "bian ada", "format": "json"}
+        ).json()["candidates"]
+        self.assertEqual(candidate["first_name"], "Àda")
+        self.assertEqual(
+            set(candidate), {"first_name", "last_name", "external_id", "url"}
+        )
+        self.assertContains(
+            self.client.get(find, {"q": self.proxy.external_id[-3:]}), "Àda Bianchi"
+        )
+
+        confirm = candidate["url"]
+        self.assertContains(self.client.get(confirm), self.proxy.external_id)
+        self.assertEqual(self.client.post(confirm).status_code, 409)
+        self.assertFalse(self.voter.delegations_given.exists())
+        for _ in range(2):
+            self.assertEqual(
+                self.client.post(confirm, {"confirm": "yes"}).status_code, 302
+            )
+        delegation = self.voter.delegations_given.get(state=Delegation.State.APPROVED)
+        self.assertEqual(delegation.delegate, self.proxy)
+        self.assertEqual(delegation.notice.kind, MailKind.PROXY)
+        self.assertEqual(delegation.notice.voter, self.proxy)
+        self.assertContains(
+            self.client.get(reverse("voting:ballot")), "spetta al delegato autorizzato"
+        )
+        self.assertEqual(
+            review(self.client, 0, self.question, self.options[0]).status_code, 409
+        )
+
+        scoped = Client()
+        token = urlsplit(proxy_access.link(delegation, self.proxy.credential)).fragment
+        path = reverse("voting:proxy_ballot", args=[delegation.pk])
+        self.assertEqual(
+            scoped.post(reverse("voting:access"), {"token": token}).json()[
+                "ballot_url"
+            ],
+            path,
+        )
+        self.assertEqual(scoped.get(find, {"format": "json"}).status_code, 403)
+        self.assertContains(scoped.get(path), "Conferma presenza e vai al voto")
+        self.assertEqual(self.proxy_review(scoped, delegation).status_code, 409)
+        self.assertRedirects(scoped.post(path, {"action": "confirm_presence"}), path)
+        payload = self.proxy_review(scoped, delegation).context["payload"]
+        self.assertContains(
+            scoped.post(self.submit_url, {"payload": payload}),
+            "Schede acquisite per 1 di 3 aventi diritto",
+        )
+        self.assertEqual(VoterPresence.objects.get().voter, self.proxy)
+        self.assertEqual(NamedBallot.objects.get().voter, self.voter)
 
     def test_revocation_before_cast_rejects_prepared_proxy_ballot(self):
         delegation = self.request_delegation(self.client, self.proxy)
@@ -196,6 +295,27 @@ class AssemblyTests(TestCase):
                         state=Delegation.State.APPROVED
                     ).count(),
                     max_allowed,
+                )
+                last_request = grantors[max_allowed].delegations_given.get()
+                self.decide(election, last_request, "revoke")
+                election.require_presence = True
+                election.save(update_fields=["require_presence"])
+                confirm = reverse("voting:confirm_direct_delegation", args=[holder.pk])
+                self.assertContains(
+                    client.post(confirm, {"confirm": "yes"}),
+                    f"limite di {max_allowed} deleghe",
+                    status_code=409,
+                )
+                previous = grantors[0].delegations_given.get()
+                self.decide(election, previous, "revoke")
+                self.assertEqual(
+                    client.post(confirm, {"confirm": "yes"}).status_code, 302
+                )
+                self.assertEqual(
+                    grantors[max_allowed]
+                    .delegations_given.get(state=Delegation.State.APPROVED)
+                    .notice.kind,
+                    MailKind.PROXY,
                 )
 
 

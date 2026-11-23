@@ -212,7 +212,7 @@ def render_pdf(election, data, counts, quorum, hashes, exported_at):
             [
                 ["Indicatore", "Numero"],
                 ["Aventi diritto nella platea", data["eligible"]],
-                ["Presenze confermate personalmente", counts["present"]],
+                ["Presenze registrate", counts["present"]],
                 ["Partecipanti unici registrati", counts["participants"]],
                 ["Schede acquisite direttamente", counts["direct"]],
                 [

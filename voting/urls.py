@@ -8,6 +8,12 @@ urlpatterns = [
     path("accedi/", views.access, name="access"),
     path("scheda/", views.ballot, name="ballot"),
     path("scheda/presenza-e-deleghe/", assembly_views.voter_assembly, name="assembly"),
+    path("scheda/deleghe/cerca/", assembly_views.find_delegate, name="find_delegate"),
+    path(
+        "scheda/deleghe/scelta/<int:delegate_pk>/",
+        assembly_views.confirm_direct_delegation,
+        name="confirm_direct_delegation",
+    ),
     path(
         "scheda/deleghe/presenta/",
         assembly_views.submit_received_delegation,

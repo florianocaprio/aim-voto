@@ -16,6 +16,8 @@ from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from mailings.campaigns import enqueue_results
+
 from . import assembly_report, proxy_access, reports, services
 from .access import administrator
 from .forms import (
@@ -390,6 +392,8 @@ def apply_transition(election, action, actor, reason):
     else:
         raise ValidationError("Operazione non disponibile nello stato attuale.")
     election.save(update_fields=["status", "ended_at", "cancellation_reason"])
+    if action == "scrutina":
+        enqueue_results(election, actor, now)
     services.audit(action, actor=actor, election=election)
     return "voting:detail"
 
@@ -693,12 +697,17 @@ def ballot_page(
             "voter": voter,
             "delegation": delegation,
             "scoped_link": proxy_access.SESSION_KEY in request.session,
+            "presence_gate": voter.election.require_presence
+            and not services.has_confirmed_presence(
+                delegation.delegate_id if delegation else voter.pk
+            ),
             "delegated_out": delegation is None
             and Delegation.objects.filter(
                 grantor=voter,
                 state=Delegation.State.APPROVED,
             ).exists(),
             "record": ballot_record,
+            "turnout": reports.turnout(voter.election) if ballot_record else None,
             "editing": editing,
             "questions": [
                 (question, set(answers.get(str(question.pk), [])))
@@ -757,6 +766,37 @@ def voter_ballot(request, voter, delegation=None):
         ).exists()
     ):
         return ballot_page(request, voter, current, status=409)
+    binding = (
+        request.session.get(SESSION_KEY) or request.session[proxy_access.SESSION_KEY]
+    )
+    if request.POST.get("action") == "confirm_presence":
+        try:
+            services.confirm_presence_from_ballot(
+                *binding[:3], delegation_id=delegation.pk if delegation else None
+            )
+        except ValidationError as exc:
+            return ballot_page(
+                request,
+                voter,
+                current,
+                delegation=delegation,
+                error=exc.messages[0],
+                status=409,
+            )
+        if delegation:
+            return redirect("voting:proxy_ballot", delegation_pk=delegation.pk)
+        return redirect("voting:ballot")
+    if voter.election.require_presence and not services.has_confirmed_presence(
+        binding[0]
+    ):
+        return ballot_page(
+            request,
+            voter,
+            current,
+            delegation=delegation,
+            error="Conferma la tua presenza prima di votare.",
+            status=409,
+        )
     if current and not voter.election.allow_replacement:
         return ballot_page(
             request,
@@ -796,9 +836,6 @@ def voter_ballot(request, voter, delegation=None):
             status=400,
             delegation=delegation,
         )
-    binding = (
-        request.session.get(SESSION_KEY) or request.session[proxy_access.SESSION_KEY]
-    )
     data = [binding, str(uuid4()), revision, answers]
     if delegation:
         data.append(delegation.pk)
@@ -888,6 +925,7 @@ def submit(request):
             "election": voter.election,
             "receipt": receipt,
             "current": current,
+            "turnout": reports.turnout(voter.election),
             "proxy": bool(proxy),
             "return_url": reverse("voting:proxy_ballot", args=[scoped[3]])
             if scoped is not None

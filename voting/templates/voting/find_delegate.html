@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Cerca un socio a cui delegare{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:ballot' %}">Torna alla tua scheda</a>
+<p class="mode">{{ election.title }}</p>
+<h1>Cerca un socio a cui delegare</h1>
+<section class="card narrow stack" data-delegate-search>
+  <form method="get" class="stack">
+    <div>
+      <label for="delegate-query">Nome, cognome o matricola</label>
+      <input id="delegate-query" type="search" name="q" value="{{ query }}" maxlength="100" autocomplete="off">
+    </div>
+    <div><button class="button">Cerca</button></div>
+  </form>
+  <p role="status">{% if error %}{{ error }}{% elif query and not candidates %}Nessun risultato. Inserisci almeno due caratteri e prova con un altro nome o matricola.{% endif %}</p>
+  <ul data-delegate-results {% if not candidates %}hidden{% endif %}>
+    {% for candidate in candidates %}<li><a href="{{ candidate.url }}">{{ candidate.first_name }} {{ candidate.last_name }} · {{ candidate.external_id }}</a></li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}

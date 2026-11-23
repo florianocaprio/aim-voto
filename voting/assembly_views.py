@@ -5,8 +5,9 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import assembly, reports, services
@@ -27,6 +28,93 @@ def lock_voter(request):
     return election, voter
 
 
+def require_direct_delegation(election):
+    if not (
+        election.require_presence
+        and election.allow_delegations
+        and services.is_open(election)
+    ):
+        raise Http404
+
+
+@require_GET
+def find_delegate(request):
+    voter = voter_context(request)
+    as_json = request.GET.get("format") == "json"
+    if voter is None:
+        return (
+            JsonResponse({"error": "Riapri il link personale."}, status=403)
+            if as_json
+            else redirect("voting:ballot")
+        )
+    election = voter.election
+    require_direct_delegation(election)
+    if voter.delegations_given.filter(state__in=assembly.ACTIVE).exists() or hasattr(
+        voter, "ballot"
+    ):
+        raise Http404
+    query = request.GET.get("q", "").strip()[:100]
+    candidates = []
+    error = ""
+    if query:
+        if services.admit_request("ricerca-delegato", voter.pk, limit=60, seconds=60):
+            candidates = assembly.search_delegates(voter, query)
+            for candidate in candidates:
+                candidate["url"] = reverse(
+                    "voting:confirm_direct_delegation", args=[candidate.pop("pk")]
+                )
+        else:
+            error = "Troppi tentativi. Riprova fra un minuto."
+    status = 429 if error else 200
+    if as_json:
+        return JsonResponse({"candidates": candidates, "error": error}, status=status)
+    return render(
+        request,
+        "voting/find_delegate.html",
+        {
+            "election": election,
+            "query": query,
+            "candidates": candidates,
+            "error": error,
+        },
+        status=status,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def confirm_direct_delegation(request, delegate_pk):
+    if request.method == "POST":
+        election, voter = lock_voter(request)
+    else:
+        voter = voter_context(request)
+        if voter is None:
+            return redirect("voting:ballot")
+        election = voter.election
+    require_direct_delegation(election)
+    delegate = get_object_or_404(election.voters.exclude(pk=voter.pk), pk=delegate_pk)
+    error = ""
+    if request.method == "POST":
+        try:
+            if request.POST.get("confirm") != "yes":
+                raise ValidationError("Conferma la scelta per conferire la delega.")
+            assembly.assign_direct_delegation(election, voter, delegate)
+        except ValidationError as exc:
+            error = exc.messages[0]
+        else:
+            messages.success(
+                request,
+                "Delega conferita. Il link è stato accodato per l’invio al delegato.",
+            )
+            return redirect("voting:ballot")
+    return render(
+        request,
+        "voting/confirm_direct_delegation.html",
+        {"election": election, "delegate": delegate, "error": error},
+        status=409 if error else 200,
+    )
+
+
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def voter_assembly(request):
@@ -38,15 +126,15 @@ def voter_assembly(request):
             if not services.is_open(election, now):
                 raise ValidationError("La consultazione è chiusa.")
             if action == "presence":
-                _, created = VoterPresence.objects.get_or_create(
-                    voter=voter, defaults={"confirmed_at": now}
+                services.register_presence(
+                    election, voter.pk, now, VoterPresence.Source.EXPLICIT
                 )
-                if created:
-                    services.audit(
-                        "presenza_confermata", election=election, voter=voter
-                    )
                 messages.success(request, "Presenza confermata.")
             elif action == "delegate":
+                if election.require_presence:
+                    raise ValidationError(
+                        "Usa la ricerca per conferire la delega diretta."
+                    )
                 external_id = request.POST.get("external_id", "").strip()
                 if not external_id or len(external_id) > 64:
                     raise ValidationError("Inserisci l’ID socio del delegato.")
@@ -80,6 +168,7 @@ def voter_assembly(request):
             "election": election,
             "is_open": services.is_open(election),
             "presence": VoterPresence.objects.filter(voter=voter).first(),
+            "has_voted": hasattr(voter, "ballot"),
             "active": active,
             "last_request": voter.delegations_given.select_related("delegate").first(),
             "received": voter.delegations_received.filter(

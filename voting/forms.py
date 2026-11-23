@@ -62,19 +62,22 @@ class ElectionForm(forms.ModelForm):
             "closes_at",
             "allow_replacement",
             "allow_delegations",
+            "require_presence",
         ]
         labels: ClassVar = {
             "title": "Titolo",
             "description": "Descrizione",
             "mode": "Modalità di voto",
             "allow_replacement": "Consenti la sostituzione del voto",
-            "allow_delegations": "Consenti il voto per delega verificata dallo staff",
+            "allow_delegations": "Consenti il voto per delega",
+            "require_presence": "Richiedi conferma di presenza prima del voto",
         }
         widgets: ClassVar = {
             "description": forms.Textarea(attrs={"rows": 4}),
             "mode": ElectionModeSelect,
         }
         help_texts: ClassVar = {
+            "require_presence": "Con le deleghe abilitate, il socio può scegliere una delega diretta al posto del voto personale.",
             "mode": (
                 "Nel voto palese la scheda è associata al socio. "
                 "Il voto segreto richiede un motore che separi l’identità dalla scelta."

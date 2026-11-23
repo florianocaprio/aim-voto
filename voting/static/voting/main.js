@@ -89,3 +89,64 @@ for (const form of document.querySelectorAll("[data-copy-link]")) {
     }
   });
 }
+
+const delegateSearch = document.querySelector("[data-delegate-search]");
+if (delegateSearch) {
+  const form = delegateSearch.querySelector("form");
+  const input = form.elements.q;
+  const results = delegateSearch.querySelector("[data-delegate-results]");
+  const status = delegateSearch.querySelector("[role='status']");
+  let timer;
+  let pending;
+
+  async function search(query) {
+    const controller = new AbortController();
+    pending = controller;
+    const url = new URL(form.action);
+    url.search = new URLSearchParams({ q: query, format: "json" });
+    status.textContent = "Ricerca in corso…";
+    try {
+      const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+      const data = await response.json();
+      if (controller.signal.aborted) return;
+      if (!response.ok) {
+        status.textContent = data.error || "Ricerca non disponibile.";
+        return;
+      }
+      for (const candidate of data.candidates) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = candidate.url;
+        link.textContent = candidate.first_name + " " + candidate.last_name + " · " + candidate.external_id;
+        item.append(link);
+        results.append(item);
+      }
+      results.hidden = data.candidates.length === 0;
+      status.textContent = data.candidates.length
+        ? "Seleziona il socio a cui vuoi delegare."
+        : "Nessun risultato. Prova con un altro nome o matricola.";
+    } catch {
+      if (!controller.signal.aborted) status.textContent = "Ricerca non disponibile. Riprova.";
+    }
+  }
+
+  function startSearch(delay) {
+    clearTimeout(timer);
+    pending?.abort();
+    results.replaceChildren();
+    results.hidden = true;
+    const query = input.value.trim();
+    if (query.length < 2) {
+      status.textContent = query ? "Inserisci almeno due caratteri." : "";
+      return;
+    }
+    status.textContent = "";
+    timer = setTimeout(() => search(query), delay);
+  }
+
+  input.addEventListener("input", () => startSearch(250));
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    startSearch(0);
+  });
+}

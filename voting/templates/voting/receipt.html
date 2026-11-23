@@ -7,6 +7,7 @@
   <p>La scheda è stata registrata il {{ receipt.accepted_at|date:"d/m/Y" }} alle {{ receipt.accepted_at|date:"H:i:s T" }}.</p>
   <p>Versione {{ receipt.revision }} · {% if current %}Scheda corrente{% else %}Scheda sostituita da un invio successivo{% endif %}</p>
   {% if proxy %}<p>Voto per {{ receipt.voter.first_name }} {{ receipt.voter.last_name }} con delega approvata.</p>{% endif %}
+  <p><strong>Schede acquisite per {{ turnout.voted }} di {{ turnout.eligible }} aventi diritto</strong>, incluse quelle per delega.</p>
   <div><a class="button secondary" href="{{ return_url }}">Torna alla votazione</a></div>
 </section>
 {% endblock %}

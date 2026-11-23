@@ -14,6 +14,13 @@ from .models import NamedBallot, VoterPresence
 from .services import ballot_questions
 
 
+def turnout(election):
+    return {
+        "voted": NamedBallot.objects.filter(voter__election=election).count(),
+        "eligible": election.voters.count(),
+    }
+
+
 def tally(election):
     ballots = list(
         NamedBallot.objects.filter(voter__election=election).values_list(
@@ -130,7 +137,14 @@ def presence_records(election):
 
 def presences_csv(election):
     rows = [
-        ["ID socio", "Nome", "Cognome", "Sezione", "Presenza confermata (Europe/Rome)"]
+        [
+            "ID socio",
+            "Nome",
+            "Cognome",
+            "Sezione",
+            "Presenza registrata (Europe/Rome)",
+            "Origine",
+        ]
     ]
     for item in presence_records(election).iterator():
         voter = item.voter
@@ -141,6 +155,7 @@ def presences_csv(election):
                 voter.last_name,
                 voter.section,
                 timezone.localtime(item.confirmed_at).isoformat(timespec="seconds"),
+                item.get_source_display(),
             ]
         )
     return csv_response("presenze.csv", rows)

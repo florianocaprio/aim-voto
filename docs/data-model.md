@@ -10,12 +10,12 @@
 | `ElectionDocument` | PDF privato associato alla consultazione, servito come allegato dopo verifica dell'autorizzazione. |
 | `ElectionVoter` | Una posizione autonoma per coppia consultazione-matricola. Conserva generalità, sezione e recapiti usati nella votazione. Le posizioni preesistenti mantengono il riferimento facoltativo a `Member`. |
 | `VotingCredential` | Una credenziale attiva per posizione. Il digest SHA-256 è univoco e indicizzato. Il valore cifrato Fernet consente il recupero autorizzato. La versione invalida le sessioni precedenti dopo una revoca. |
-| `VoterPresence` | Una conferma con data e ora per posizione elettorale. |
+| `VoterPresence` | Una presenza con data, ora e origine per posizione elettorale. L’origine indica la conferma esplicita o la prima scheda acquisita per quella persona come votante. |
 | `Delegation` | Delegante, delegato, data e stato della richiesta. Vincoli per persone distinte e una sola richiesta attiva per delegante. Servizi e lock verificano la platea comune e la capienza del delegato. |
 | `DelegationAttachment` | PDF o JPG privato della richiesta presentata dal delegato, con nome del file e tipo verificato. Il documento è consultabile dallo staff della consultazione. |
 | `NamedBallot` | Una scheda corrente per `ElectionVoter`, con risposte, revisione e istante di acquisizione. La revisione aumenta a ogni sostituzione valida. Per una scheda per delega, `cast_by` registra la posizione del delegato. |
 | `SubmissionReceipt` | ID della richiesta, impronta HMAC, revisione e istante. Vincoli univoci per posizione/richiesta e posizione/revisione. Le ricevute delle revisioni precedenti non conservano le scelte in chiaro. |
-| `ReminderCampaign` | Campagna per invito, sollecito o reinvio, con autore, consultazione, modello, avanzamento e date di conferma e annullamento. |
+| `ReminderCampaign` | Campagna per invito, sollecito, reinvio, link di delega o risultati. Un vincolo consente una sola campagna di risultati per consultazione. |
 | `EmailDelivery` | Posizione nella selezione di una campagna, stato, tentativi, motivo ed esito. Vincoli per coppia campagna-elettore, per invio ordinario pendente e per una sola notifica di approvazione per delega. |
 | `AuditEvent` | Metadati operativi, attori, date e riferimenti. Le operazioni sui link registrano posizione e azione, senza il valore della credenziale. |
 | `RateBucket` | Contatori persistenti con chiave derivata per limitare le richieste di autenticazione e riscatto. |

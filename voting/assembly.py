@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 
@@ -107,6 +109,90 @@ def request_received_delegation(election, delegate, fields):
     return delegation
 
 
+def validate_delegation_approval(election, grantor_id, delegate_id, existing_pk=None):
+    if NamedBallot.objects.filter(voter_id=grantor_id).exists():
+        raise ValidationError(
+            "La posizione del delegante ha già una scheda registrata."
+        )
+    approved = Delegation.objects.filter(
+        state=Delegation.State.APPROVED,
+        grantor__election=election,
+        delegate__election=election,
+    )
+    if approved.filter(Q(delegate_id=grantor_id) | Q(grantor_id=delegate_id)).exists():
+        raise ValidationError(
+            "Una delega approvata impedisce di creare una catena di deleghe."
+        )
+    limit = delegation_limit(election.voters.count())
+    if reserved_slots(election, delegate_id).exclude(pk=existing_pk).count() >= limit:
+        raise ValidationError(f"Il delegato ha raggiunto il limite di {limit} deleghe.")
+
+
+def assign_direct_delegation(election, grantor, delegate):
+    from mailings.campaigns import enqueue_proxy_notice
+
+    now = require_delegations_open(election)
+    if (
+        not election.require_presence
+        or grantor.election_id != election.pk
+        or delegate.election_id != election.pk
+        or grantor.pk == delegate.pk
+    ):
+        raise ValidationError("La delega diretta non è disponibile per questa scelta.")
+    active = grantor.delegations_given.filter(state__in=ACTIVE).first()
+    if active:
+        if (
+            active.state == Delegation.State.APPROVED
+            and active.delegate_id == delegate.pk
+        ):
+            return active
+        raise ValidationError("Hai già una delega in verifica o approvata.")
+    validate_delegation_approval(election, grantor.pk, delegate.pk)
+    delegation = Delegation.objects.create(
+        grantor=grantor,
+        delegate=delegate,
+        requested_at=now,
+        state=Delegation.State.APPROVED,
+    )
+    audit(
+        "delega_diretta_conferita",
+        election=election,
+        voter=grantor,
+        details={"delega": delegation.pk, "delegato": delegate.pk},
+    )
+    enqueue_proxy_notice(election, delegation, actor=None)
+    return delegation
+
+
+def search_key(value):
+    folded = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(char for char in folded if char.isalnum())
+
+
+def search_delegates(voter, query):
+    terms = [key for term in query.split() if (key := search_key(term))]
+    if sum(map(len, terms)) < 2:
+        return []
+    candidates = voter.election.voters.exclude(pk=voter.pk).values(
+        "pk", "first_name", "last_name", "external_id"
+    )
+    matches = []
+    for candidate in candidates:
+        fields = (
+            search_key(candidate["first_name"]),
+            search_key(candidate["last_name"]),
+            search_key(candidate["external_id"]),
+        )
+        if not all(any(term in field for field in fields) for term in terms):
+            continue
+        prefix_penalty = sum(
+            not any(field.startswith(term) for field in fields) for term in terms
+        )
+        matches.append((prefix_penalty, candidate))
+    matches.sort(key=lambda item: item[0])
+    return [candidate for _, candidate in matches[:10]]
+
+
 def decide_delegation(election, delegation, action, *, actor=None):
     require_delegations_open(election)
     status = Delegation.State
@@ -116,32 +202,9 @@ def decide_delegation(election, delegation, action, *, actor=None):
         and actor is not None
     ):
         if action == "approve":
-            if NamedBallot.objects.filter(voter_id=delegation.grantor_id).exists():
-                raise ValidationError(
-                    "La posizione del delegante ha già una scheda registrata."
-                )
-            approved = Delegation.objects.filter(
-                state=status.APPROVED,
-                grantor__election=election,
-                delegate__election=election,
+            validate_delegation_approval(
+                election, delegation.grantor_id, delegation.delegate_id, delegation.pk
             )
-            if approved.filter(
-                Q(delegate_id=delegation.grantor_id)
-                | Q(grantor_id=delegation.delegate_id)
-            ).exists():
-                raise ValidationError(
-                    "Una delega approvata impedisce di creare una catena di deleghe."
-                )
-            limit = delegation_limit(election.voters.count())
-            if (
-                reserved_slots(election, delegation.delegate_id)
-                .exclude(pk=delegation.pk)
-                .count()
-                >= limit
-            ):
-                raise ValidationError(
-                    f"Il delegato ha raggiunto il limite di {limit} deleghe."
-                )
             delegation.state = status.APPROVED
         else:
             delegation.state = status.REJECTED

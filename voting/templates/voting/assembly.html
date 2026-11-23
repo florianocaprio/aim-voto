@@ -7,7 +7,7 @@
   <section class="card stack">
     <h2>Presenza di {{ voter.first_name }} {{ voter.last_name }}</h2>
     {% if presence %}
-      <p>Presenza confermata il {{ presence.confirmed_at|date:"d/m/Y H:i T" }}.</p>
+      <p>Presenza registrata il {{ presence.confirmed_at|date:"d/m/Y H:i T" }} · {{ presence.get_source_display }}</p>
     {% elif is_open %}
       <p>Conferma la tua presenza con un’azione distinta dal voto.</p>
       <form method="post">{% csrf_token %}<button class="button secondary" name="action" value="presence">Confermo la mia presenza</button></form>
@@ -25,6 +25,10 @@
       {% if active %}
         <p>Puoi revocare la delega fino alla registrazione della prima scheda da parte del delegato.</p>
         <form method="post" action="{% url 'voting:voter_revoke' active.pk %}">{% csrf_token %}<button class="button secondary">Revoca la delega</button></form>
+      {% elif election.require_presence %}
+        {% if not has_voted %}
+          <div><a class="button" href="{% url 'voting:find_delegate' %}">Cerca un socio a cui delegare</a></div>
+        {% endif %}
       {% else %}
         <form method="post" class="stack">{% csrf_token %}
           <div><label for="delegate-id">ID socio della persona a cui deleghi il voto</label><input id="delegate-id" name="external_id" maxlength="64" required></div>

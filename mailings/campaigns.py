@@ -11,6 +11,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from voting import reports
 from voting.models import Election, ElectionVoter, NamedBallot
 from voting.services import audit, database_now, is_open, lock_election, personal_url
 
@@ -62,7 +63,13 @@ def recipients(election, kind, *, rows=None):
     ).order_by("last_name", "first_name", "pk")
 
 
-def exclusion(election, kind, voter, now):
+def window_exclusion(election, kind, now):
+    if kind == MailKind.RESULTS:
+        return (
+            ""
+            if election.status == Election.Status.TALLIED
+            else DeliveryReason.RESULTS_UNPUBLISHED
+        )
     if not is_open(election, now):
         if (
             election.status in (Election.Status.DRAFT, Election.Status.SCHEDULED)
@@ -70,12 +77,21 @@ def exclusion(election, kind, voter, now):
         ):
             return DeliveryReason.NOT_OPEN
         return DeliveryReason.CLOSED
+    return ""
+
+
+def exclusion(election, kind, voter, now):
+    reason = window_exclusion(election, kind, now)
+    if reason:
+        return reason
     if kind == MailKind.REMINDER and voter.already_voted:
         return DeliveryReason.VOTED
     if not voter.email:
         return DeliveryReason.MISSING_EMAIL
     if not usable_address(voter.email):
         return DeliveryReason.INVALID_EMAIL
+    if kind == MailKind.RESULTS:
+        return ""
     if getattr(voter, "credential", None) is None:
         return DeliveryReason.INVALID_CREDENTIAL
     if kind != MailKind.PROXY and voter.delivery_pending:
@@ -110,6 +126,8 @@ def active_link(voter):
 
 
 def render_body(campaign, voter, url, *, represented=None):
+    if campaign.kind == MailKind.RESULTS:
+        return campaign.body
     deadline = timezone.localtime(campaign.election.closes_at, ROME).strftime(
         "%d/%m/%Y alle %H:%M %Z"
     )
@@ -129,6 +147,12 @@ def render_body(campaign, voter, url, *, represented=None):
                 "Dal link personale puoi aprire Presenza e deleghe. Lì puoi presentare una delega "
                 "ricevuta allegando la domanda compilata in PDF o JPG.\n"
             )
+        if campaign.election.require_presence:
+            instructions += (
+                "Prima di aprire la scheda ti sarà chiesto di confermare la presenza.\n"
+            )
+            if campaign.election.allow_delegations:
+                instructions += "Puoi anche cercare un avente diritto e conferire direttamente la delega.\n"
     return (
         f"Ciao {voter.first_name} {voter.last_name},\n\n"
         f"{campaign.body}\n\n"
@@ -145,7 +169,11 @@ def enqueue_proxy_notice(election, delegation, actor):
         author=actor,
         kind=MailKind.PROXY,
         subject="Link di voto per delega AIM Voto",
-        body="La tua richiesta di delega è stata approvata.",
+        body=(
+            "Ti è stata conferita una delega di voto."
+            if actor is None
+            else "La tua richiesta di delega è stata approvata."
+        ),
         state=CampaignState.CONFIRMED,
         confirmed_at=timezone.now(),
     )
@@ -155,6 +183,38 @@ def enqueue_proxy_notice(election, delegation, actor):
         delegation=delegation,
         kind=MailKind.PROXY,
         state=DeliveryState.QUEUED,
+    )
+
+
+def enqueue_results(election, actor, now):
+    data = reports.tally(election)
+    lines = [
+        f"Consultazione: {election.title}",
+        f"Aventi diritto: {data['eligible']}",
+        f"Votanti: {data['total']} (schede acquisite, incluse le deleghe)",
+    ]
+    for index, row in enumerate(data["rows"], start=1):
+        lines.extend(("", f"Quesito {index}: {row['question']}"))
+        lines.extend(f"{label}: {count}" for label, count in row["choices"])
+        lines.append(f"Senza risposta: {row['omitted']}")
+    campaign = ReminderCampaign.objects.create(
+        election=election,
+        author=actor,
+        kind=MailKind.RESULTS,
+        state=CampaignState.CONFIRMED,
+        subject="Risultati della votazione AIM Voto",
+        body="\n".join(lines) + "\n",
+        confirmed_at=now,
+    )
+    EmailDelivery.objects.bulk_create(
+        EmailDelivery(
+            campaign=campaign,
+            voter_id=voter_id,
+            kind=MailKind.RESULTS,
+            state=DeliveryState.QUEUED,
+            available_at=now,
+        )
+        for voter_id in election.voters.values_list("pk", flat=True)
     )
 
 

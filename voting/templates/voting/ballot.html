@@ -9,8 +9,8 @@
     <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
   </div>
   <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
-  {% if voter and not scoped_link %}
-    <div><a class="button secondary" href="{% url 'voting:assembly' %}">{% if election.allow_delegations %}Presenza e deleghe{% else %}Conferma presenza{% endif %}</a></div>
+  {% if voter and not scoped_link and election.allow_delegations %}
+    <div><a class="button secondary" href="{% url 'voting:assembly' %}">Presenza e deleghe</a></div>
   {% endif %}
   {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata.</p>{% endif %}
   {% if election.description %}<div class="prose">{{ election.description|linebreaks }}</div>{% endif %}
@@ -20,8 +20,20 @@
     </section>
   {% endif %}
   {% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
+  {% if turnout %}<p class="muted">Schede acquisite per {{ turnout.voted }} di {{ turnout.eligible }} aventi diritto, incluse quelle per delega.</p>{% endif %}
   {% if delegated_out %}
-    <p class="alert">Il voto per questa posizione spetta al delegato approvato dallo staff.</p>
+    <p class="alert">Il voto per questa posizione spetta al delegato autorizzato.</p>
+  {% elif presence_gate %}
+    <section class="card stack">
+      <h2>Conferma di presenza</h2>
+      <p>Per aprire la scheda conferma la tua presenza.</p>
+      <div class="actions">
+        <form method="post">{% csrf_token %}<button class="button" name="action" value="confirm_presence">Conferma presenza e vai al voto</button></form>
+        {% if not delegation and election.allow_delegations %}
+          <a class="button secondary" href="{% url 'voting:find_delegate' %}">Cerca un socio a cui delegare</a>
+        {% endif %}
+      </div>
+    </section>
   {% elif record and not editing or record and not election.allow_replacement %}
     <section class="card stack"><h2>Voto registrato</h2>
       <p>Ultima acquisizione {{ record.submitted_at|date:"d/m/Y H:i:s T" }}.</p>

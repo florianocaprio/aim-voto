@@ -11,6 +11,7 @@ class MailKind(models.TextChoices):
     REMINDER = "reminder", "Solleciti ai non votanti"
     RESEND = "resend", "Reinvio individuale"
     PROXY = "proxy", "Link di voto per delega"
+    RESULTS = "results", "Risultati della votazione"
 
 
 class CampaignState(models.TextChoices):
@@ -33,6 +34,7 @@ class DeliveryState(models.TextChoices):
 class DeliveryReason(models.TextChoices):
     CLOSED = "closed", "Consultazione chiusa o scaduta"
     NOT_OPEN = "not_open", "Consultazione in attesa di apertura"
+    RESULTS_UNPUBLISHED = "results_unpublished", "Scrutinio non pubblicato"
     VOTED = "voted", "Voto già acquisito"
     INVALID_CREDENTIAL = "invalid_credential", "Credenziale assente o non valida"
     MISSING_EMAIL = "missing_email", "Indirizzo email mancante"
@@ -72,6 +74,13 @@ class ReminderCampaign(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("election",),
+                condition=Q(kind=MailKind.RESULTS),
+                name="mailings_one_results_per_election",
+            ),
+        )
 
 
 class EmailDelivery(models.Model):

@@ -6,9 +6,9 @@ from django.utils import timezone
 
 from voting import proxy_access
 from voting.models import Delegation
-from voting.services import database_now, is_open, lock_election
+from voting.services import database_now, lock_election
 
-from .campaigns import active_link, exclusion, recipients, render_body
+from .campaigns import active_link, exclusion, recipients, render_body, window_exclusion
 from .models import (
     CampaignState,
     DeliveryReason,
@@ -58,15 +58,20 @@ def _claim(delivery_id, election_id):
     if delivery.campaign.state == CampaignState.CANCELLED:
         _skip(delivery, DeliveryReason.CANCELLED, now)
         return None
-    voter = recipients(election, delivery.kind, rows=delivery.campaign).get(
-        pk=delivery.voter_id
+    audience = (
+        election.voters
+        if delivery.kind == MailKind.RESULTS
+        else recipients(election, delivery.kind, rows=delivery.campaign)
     )
+    voter = audience.get(pk=delivery.voter_id)
     reason = exclusion(election, delivery.kind, voter, now)
     if reason:
         _skip(delivery, reason, now)
         return None
     represented = None
-    if delivery.kind == MailKind.PROXY:
+    if delivery.kind == MailKind.RESULTS:
+        link = ""
+    elif delivery.kind == MailKind.PROXY:
         delegation = (
             Delegation.objects.select_related("grantor")
             .filter(
@@ -84,13 +89,14 @@ def _claim(delivery_id, election_id):
         link = proxy_access.link(delegation, voter.credential)
     else:
         link = active_link(voter)
-    if not link:
+    if delivery.kind != MailKind.RESULTS and not link:
         _skip(delivery, DeliveryReason.INVALID_CREDENTIAL, now)
         return None
     schedule, _ = DispatchSchedule.objects.select_for_update().get_or_create(pk=1)
     now = database_now()
-    if not is_open(election, now):
-        _skip(delivery, DeliveryReason.CLOSED, now)
+    reason = window_exclusion(election, delivery.kind, now)
+    if reason:
+        _skip(delivery, reason, now)
         return None
     if schedule.next_at > now:
         delivery.available_at = schedule.next_at

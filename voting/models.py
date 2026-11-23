@@ -32,6 +32,7 @@ class Election(models.Model):
     ended_at = models.DateTimeField(null=True, editable=False)
     allow_replacement = models.BooleanField(default=True)
     allow_delegations = models.BooleanField(default=False)
+    require_presence = models.BooleanField(default=False)
     reminder_interval_hours = models.PositiveSmallIntegerField(default=24)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -192,10 +193,15 @@ class NamedBallot(models.Model):
 
 
 class VoterPresence(models.Model):
+    class Source(models.TextChoices):
+        EXPLICIT = "explicit", "Conferma esplicita"
+        BALLOT = "ballot", "Scheda acquisita"
+
     voter = models.OneToOneField(
         ElectionVoter, on_delete=models.CASCADE, related_name="presence"
     )
     confirmed_at = models.DateTimeField()
+    source = models.CharField(max_length=8, choices=Source, default=Source.EXPLICIT)
 
 
 class Delegation(models.Model):

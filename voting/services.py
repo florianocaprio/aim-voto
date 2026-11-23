@@ -20,6 +20,7 @@ from .models import (
     Question,
     RateBucket,
     SubmissionReceipt,
+    VoterPresence,
     VotingCredential,
 )
 
@@ -48,6 +49,49 @@ def lock_election(election_id):
 def is_open(election, now=None):
     now = timezone.now() if now is None else now
     return election.status == Election.Status.OPEN and now < election.closes_at
+
+
+def register_presence(election, voter_id, now, source):
+    presence, created = VoterPresence.objects.get_or_create(
+        voter_id=voter_id,
+        defaults={"confirmed_at": now, "source": source},
+    )
+    if created:
+        audit(
+            "presenza_confermata",
+            election=election,
+            voter=presence.voter,
+            details={"origine": source},
+        )
+
+
+def has_confirmed_presence(voter_id):
+    return VoterPresence.objects.filter(
+        voter_id=voter_id, source=VoterPresence.Source.EXPLICIT
+    ).exists()
+
+
+@transaction.atomic
+def confirm_presence_from_ballot(voter_id, election_id, version, *, delegation_id=None):
+    election = lock_election(election_id)
+    now = database_now()
+    if not is_open(election, now):
+        raise ValidationError("La consultazione è chiusa.")
+    if not VotingCredential.objects.filter(
+        voter_id=voter_id, voter__election=election, version=version
+    ).exists():
+        raise ValidationError("Il link è stato revocato. Utilizza quello più recente.")
+    if (
+        delegation_id is not None
+        and not Delegation.objects.filter(
+            pk=delegation_id,
+            delegate_id=voter_id,
+            grantor__election=election,
+            state=Delegation.State.APPROVED,
+        ).exists()
+    ):
+        raise ValidationError("La delega non è più valida.")
+    register_presence(election, voter_id, now, VoterPresence.Source.EXPLICIT)
 
 
 def digest(token):
@@ -233,6 +277,7 @@ def record_ballot(
     delegation_id=None,
 ):
     election = lock_election(election_id)
+    actor_id = voter_id
     credential = VotingCredential.objects.filter(
         voter_id=voter_id, voter__election=election, version=credential_version
     ).first()
@@ -280,6 +325,8 @@ def record_ballot(
         raise ValidationError(
             "Hai già votato. Questa consultazione non consente sostituzioni."
         )
+    if election.require_presence and not has_confirmed_presence(actor_id):
+        raise ValidationError("Conferma la tua presenza prima di votare.")
 
     # Punto di accettazione, dopo validazione e con il lock condiviso dalla chiusura.
     accepted_at = database_now()
@@ -302,6 +349,7 @@ def record_ballot(
         revision=next_revision,
         accepted_at=accepted_at,
     )
+    register_presence(election, actor_id, accepted_at, VoterPresence.Source.BALLOT)
     if cast_by_id is not None:
         audit(
             "scheda_per_delega",
