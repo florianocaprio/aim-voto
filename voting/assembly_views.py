@@ -221,6 +221,9 @@ def voter_assembly(request):
             "is_open": services.is_open(election),
             "delegations_open": services.delegations_open(election),
             "has_voted": election.participation_records().filter(voter=voter).exists(),
+            "has_exercised_delegation": incoming.filter(
+                state=Delegation.State.APPROVED, exercised=True
+            ).exists(),
             "active": active,
             "last_request": voter.delegations_given.select_related("delegate").first(),
             "received": incoming.filter(

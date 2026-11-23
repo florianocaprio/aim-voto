@@ -121,6 +121,13 @@ class AssemblyTests(TestCase):
         pending = self.admin.get(delegate_details)
         self.assertContains(pending, "Ha votato")
         self.assertContains(pending, "1 delega da votare")
+        ballot_url = reverse("voting:ballot")
+        return_button = (
+            f'<a class="button" href="{ballot_url}">Torna alla tua scheda</a>'
+        )
+        self.assertNotContains(
+            proxy.get(self.participation_url), return_button, html=True
+        )
 
         payload = self.proxy_review(proxy, delegation).context["payload"]
         self.assertEqual(
@@ -137,9 +144,9 @@ class AssemblyTests(TestCase):
         complete = self.admin.get(delegate_details)
         self.assertContains(complete, "<dd>Ha votato</dd>", html=True)
         self.assertNotContains(complete, "delega da votare")
-        self.assertContains(
-            proxy.get(self.participation_url), 'class="button delegation-completed"'
-        )
+        delegations = proxy.get(self.participation_url)
+        self.assertContains(delegations, 'class="button delegation-completed"')
+        self.assertContains(delegations, return_button, html=True, count=1)
         self.assertEqual(NamedBallot.objects.count(), 2)
         presence = VoterPresence.objects.get()
         self.assertEqual(presence.voter, self.proxy)
