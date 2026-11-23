@@ -1,0 +1,34 @@
+name: Controlli AIM Voto
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verifica segreti nella cronologia
+        run: |
+          docker run --rm --network none \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            git /repo --log-opts="--all" --redact --no-banner
+      - name: Genera segreti effimeri per i test
+        run: python3 scripts/setup_local.py
+      - name: Ruff, verifica migrazioni e test su PostgreSQL
+        run: docker compose --profile test run --build --rm test
+      - name: Arresta i servizi di test
+        if: always()
+        run: |
+          if test -f .env; then
+            docker compose down --volumes
+          fi
