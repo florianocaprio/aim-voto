@@ -53,6 +53,14 @@ class DeliveryReason(models.TextChoices):
     )
 
 
+class InvitationTemplate(models.Model):
+    election = models.OneToOneField(
+        "voting.Election", on_delete=models.CASCADE, related_name="invitation_template"
+    )
+    subject = models.CharField(max_length=140)
+    body = models.TextField()
+
+
 class ReminderCampaign(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     election = models.ForeignKey(

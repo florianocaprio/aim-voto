@@ -24,7 +24,7 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 2. Da **Aggiungi quesito** inserisci una mozione, una scelta singola, una scelta multipla o una selezione di candidati. Per le selezioni multiple stabilisci il numero massimo di preferenze. **Gestisci documenti** accetta fino a cinque PDF da 3 MiB ciascuno.
 3. Apri **Aventi diritto** e inserisci la platea di questa consultazione, a mano o con un file. Controlla l’elenco prima di aprire o programmare la votazione.
 4. Controlla **Anteprima scheda**, aventi diritto e scadenza. Seleziona **Apri ora** oppure **Programma l’apertura** e conferma l’operazione. Dallo stato programmato puoi tornare in bozza per fare modifiche. Il worker applica gli orari programmati. Il sistema richiede un orario univoco nei giorni di cambio dell’ora legale.
-5. Durante l’apertura, seleziona **Prepara inviti email**. Scegli la sezione o l’intera platea, personalizza oggetto e testo, verifica i destinatari e conferma l’accodamento.
+5. In bozza o con apertura programmata, usa **Anteprima email di invito** per modificare oggetto e messaggio. Premi **Salva modello** per ritrovare il testo quando la consultazione apre. Durante l’apertura, scegli **Prepara inviti email**, verifica i destinatari e conferma l’accodamento.
 
 Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega. La sostituzione è disponibile nel palese e il voto segreto è definitivo dalla conferma. All’apertura si congelano quesiti, opzioni, modalità e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 

@@ -16,15 +16,17 @@ from voting.models import Election
 from voting.services import is_open
 
 from .campaigns import (
+    INVITATION_TEMPLATE_STATES,
     cancel_campaign,
     confirm_campaign,
     create_preview,
     recipients,
     render_body,
+    save_invitation_template,
     update_interval,
 )
-from .forms import DEFAULT_MESSAGES, CampaignForm, IntervalForm
-from .models import CampaignState, DeliveryState, MailKind
+from .forms import CampaignForm, IntervalForm
+from .models import CampaignState, DeliveryState, MailKind, ReminderCampaign
 
 PREVIEW_LINK = "[link personale aggiunto dal sistema]"
 
@@ -34,22 +36,41 @@ def _editor(request, election_id, kind, voter_id=None):
     voter = None
     if voter_id is not None:
         voter = get_object_or_404(election.voters, pk=voter_id)
+    invitation = kind == MailKind.INVITE
+    editing_template = invitation and election.status in INVITATION_TEMPLATE_STATES
+    saving_template = editing_template or (
+        invitation and request.POST.get("action") == "save_template"
+    )
+    template = getattr(election, "invitation_template", None) if invitation else None
     sections = (
         election.voters.order_by("section").values_list("section", flat=True).distinct()
     )
     form = CampaignForm(
-        request.POST if request.method == "POST" else None, kind=kind, sections=sections
+        request.POST if request.method == "POST" else None,
+        kind=kind,
+        sections=None if editing_template else sections,
+        template=template,
     )
     if request.method == "POST" and form.is_valid():
         try:
-            campaign = create_preview(
-                election.pk, request.user, kind, form.cleaned_data, voter_id=voter_id
-            )
+            if saving_template:
+                save_invitation_template(election.pk, request.user, form.cleaned_data)
+            else:
+                campaign = create_preview(
+                    election.pk,
+                    request.user,
+                    kind,
+                    form.cleaned_data,
+                    voter_id=voter_id,
+                )
         except ValidationError as error:
             form.add_error(None, error)
         else:
+            if saving_template:
+                messages.success(request, "Modello di invito salvato.")
+                return redirect("mailings:invite", election.pk)
             return redirect("mailings:campaign", election.pk, campaign.pk)
-    model = SimpleNamespace(election=election, body=DEFAULT_MESSAGES[kind][1])
+    model = ReminderCampaign(election=election, kind=kind, **form.initial)
     sample_voter = voter or SimpleNamespace(first_name="Nome", last_name="Cognome")
     return render(
         request,
@@ -57,10 +78,14 @@ def _editor(request, election_id, kind, voter_id=None):
         {
             "election": election,
             "kind": kind,
-            "kind_label": kind.label,
+            "kind_label": "Anteprima email di invito"
+            if editing_template
+            else kind.label,
             "voter": voter,
             "form": form,
             "open": is_open(election),
+            "editing_template": editing_template,
+            "sample_subject": model.subject,
             "sample_body": render_body(model, sample_voter, PREVIEW_LINK),
         },
     )

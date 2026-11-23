@@ -19,6 +19,7 @@ from .models import (
     DeliveryReason,
     DeliveryState,
     EmailDelivery,
+    InvitationTemplate,
     MailKind,
     ReminderCampaign,
 )
@@ -27,6 +28,7 @@ PENDING = (DeliveryState.QUEUED, DeliveryState.SENDING)
 POSSIBLY_SENT = (DeliveryState.ACCEPTED, DeliveryState.UNCERTAIN)
 PREVIEW_LIFETIME = timedelta(minutes=30)
 ROME = ZoneInfo("Europe/Rome")
+INVITATION_TEMPLATE_STATES = (Election.Status.DRAFT, Election.Status.SCHEDULED)
 
 
 def recipients(election, kind, *, rows=None):
@@ -162,6 +164,20 @@ def render_body(campaign, voter, url, *, represented=None):
         f"{instructions}"
         f"Assistenza Angeli in Moto ODV: {settings.SUPPORT_EMAIL}\n"
     )
+
+
+@transaction.atomic
+def save_invitation_template(election_id, actor, fields):
+    election = lock_election(election_id)
+    if election.status not in INVITATION_TEMPLATE_STATES:
+        raise ValidationError(
+            "Lo stato della consultazione è cambiato. Riapri la pagina degli inviti."
+        )
+    InvitationTemplate.objects.update_or_create(
+        election=election,
+        defaults={"subject": fields["subject"], "body": fields["body"]},
+    )
+    audit("modello_invito_salvato", actor=actor, election=election)
 
 
 def enqueue_proxy_notice(election, delegation, actor):
