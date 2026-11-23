@@ -14,7 +14,7 @@
 <h1>Elettori della votazione</h1>
 <p class="muted">{% if links_available and user.is_superuser %}Apri il nome di un elettore per copiare il link personale e gestire gli invii.{% else %}Elenco degli aventi diritto di questa consultazione.{% endif %}</p>
 {% endif %}
-<form method="get" class="search">
+<form method="get" class="search"{% if election.status == "scheduled" or election.status == "delegations" or election.status == "open" %} data-voter-auto-refresh{% endif %}>
   <div><label for="search">Nome, matricola, email o cellulare</label><input id="search" name="q" value="{{ search }}" type="search" maxlength="150"></div>
   <div class="voter-order">
     <label for="voter-sort">Ordina per</label>

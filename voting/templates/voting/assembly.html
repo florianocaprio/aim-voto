@@ -51,6 +51,9 @@
     {% endfor %}
   </section>
   {% endif %}
+  {% if has_exercised_delegation %}
+    <div><a class="button" href="{% url 'voting:ballot' %}">{% if is_open %}Torna alla tua scheda{% else %}Torna alla consultazione{% endif %}</a></div>
+  {% endif %}
   {% else %}
     <p>Le deleghe non sono previste per questa consultazione.</p>
   {% endif %}

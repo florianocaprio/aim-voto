@@ -1,5 +1,25 @@
 "use strict";
 
+const voterFilters = document.querySelector("[data-voter-auto-refresh]");
+if (voterFilters) {
+  const { q: search, sort } = voterFilters.elements;
+  const appliedSort = sort.selectedOptions[0].value;
+  setInterval(() => {
+    const focused = document.activeElement;
+    if (
+      document.hidden ||
+      voterFilters.contains(focused) ||
+      search.value !== search.defaultValue ||
+      sort.value !== appliedSort ||
+      focused?.matches("[data-copy-value]") ||
+      document.querySelector("[data-copy-link] button:disabled")
+    ) {
+      return;
+    }
+    window.location.reload();
+  }, 30_000);
+}
+
 const administratorScope = document.querySelector("[data-administrator-scope]");
 if (administratorScope) {
   const scope = administratorScope.elements.scope;
