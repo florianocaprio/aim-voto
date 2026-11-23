@@ -1,0 +1,36 @@
+<section class="card stack{% if quorum_failed %} quorum-failed{% endif %}" aria-labelledby="voting-quorum">
+  {% if quorum %}
+    <h2 id="voting-quorum">{% if quorum_failed %}Quorum non raggiunto{% elif quorum.minimum %}Quorum raggiunto{% else %}Quorum libero{% endif %}</h2>
+    <p>{{ quorum.counted }} votanti su {{ eligible }} aventi diritto · {{ quorum.label }}{% if quorum.minimum %} · Minimo {{ quorum.minimum }}{% endif %}</p>
+    <p>{% if quorum_failed %}Gli esiti non sono validi per il quorum impostato.{% else %}Votazione valida secondo il quorum impostato.{% endif %}</p>
+  {% else %}
+    <h2 id="voting-quorum">Quorum non configurato</h2>
+    <p>Lo scrutinio riporta i conteggi acquisiti.</p>
+  {% endif %}
+</section>
+<div{% if quorum_failed %} class="results-muted"{% endif %}>
+  <div class="stats">
+    <div class="card"><strong>{{ eligible }}</strong><span>Aventi diritto</span></div>
+    <div class="card"><strong>{{ total }}</strong><span>Votanti</span></div>
+    <div class="card"><strong>{{ blank }}</strong><span>Schede bianche</span></div>
+  </div>
+  <div class="stack">
+    {% for item in rows %}
+    <section class="card stack{% if item.outcome %} outcome-{{ item.outcome }}{% endif %}">
+      <div>
+        <h2>{{ item.question }}</h2>
+        {% if item.outcome_label %}<p class="outcome-label"><strong>{{ item.outcome_label }}</strong></p>{% endif %}
+      </div>
+      <p>Schede con risposta {{ item.answered }} su {{ total }} · Senza risposta {{ item.omitted }}</p>
+      {% if item.quorum.minimum %}<p>Quorum del quesito · {{ item.quorum.label }} · Minimo {{ item.quorum.minimum }} risposte</p>{% endif %}
+      {% if item.approval_minimum %}<p>Favorevoli necessari per l’approvazione {{ item.approval_minimum }} su {{ item.answered }} risposte, astenuti inclusi.</p>{% endif %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Opzione</th><th scope="col">Preferenze</th></tr></thead>
+          <tbody>{% for label, count in item.choices %}<tr><th scope="row">{{ label }}</th><td>{{ count }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+</div>

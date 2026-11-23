@@ -159,6 +159,7 @@ def question_edit(request, pk, qid=None):
             "text": question.text,
             "kind": question.kind,
             "max_choices": question.max_choices,
+            "voting_quorum": question.voting_quorum,
             "options": "\n".join(question.choices.values_list("text", flat=True)),
         }
     if request.method == "POST" and request.POST.get("remove") and question:
@@ -177,7 +178,7 @@ def question_edit(request, pk, qid=None):
             )
         else:
             question = question or Question(election=election)
-            for field in ("text", "kind", "max_choices"):
+            for field in ("text", "kind", "max_choices", "voting_quorum"):
                 setattr(question, field, form.cleaned_data[field])
             question.save()
             question.choices.all().delete()
@@ -644,7 +645,11 @@ def access(request):
     if token.startswith(proxy_access.TOKEN_PREFIX):
         binding = proxy_access.decode(token)
         delegation = proxy_access.approved_delegation(binding)
-        if delegation is None or not services.is_open(delegation.grantor.election):
+        if delegation is None or (
+            delegation.grantor.election.status
+            not in {Election.Status.CLOSED, Election.Status.TALLIED}
+            and not services.is_open(delegation.grantor.election)
+        ):
             return JsonResponse(
                 {"error": "Il link per questa delega non è valido o è scaduto."},
                 status=404,
@@ -709,6 +714,22 @@ def ballot_page(
     if voter is None:
         return render(request, "voting/unavailable.html", status=403)
     election = voter.election
+    if election.status == Election.Status.TALLIED:
+        if delegation is not None:
+            participated = (
+                ballot_record and ballot_record.cast_by_id == delegation.delegate_id
+            )
+        else:
+            participated = (
+                ballot_record
+                or election.participation_records().filter(cast_by=voter).exists()
+            )
+        if participated:
+            return render(
+                request,
+                "voting/voter_results.html",
+                {"election": election, **reports.results_with_outcomes(election)},
+            )
     if not services.is_open(election):
         return render(request, "voting/unavailable.html", {"election": election})
     if answers is None:
@@ -996,7 +1017,7 @@ def results(request, pk):
     return render(
         request,
         "voting/results.html",
-        {"election": election, **reports.tally(election)},
+        {"election": election, **reports.results_with_outcomes(election)},
     )
 
 

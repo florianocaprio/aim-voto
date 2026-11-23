@@ -28,6 +28,8 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 
 Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega e la sostituzione del voto. Con **Consenti la sostituzione del voto** attiva, fa fede l’ultima scheda confermata prima della chiusura. Con la casella vuota, la prima conferma rende il voto definitivo. Nel segreto, per sostituire una scheda occorre compilare di nuovo i quesiti. All’apertura si congelano quesiti, opzioni, modalità e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 
+Imposta in bozza **Quorum della votazione**. Le soglie di 1/3, 1/2 e 2/3 si calcolano sugli aventi diritto, arrotondando all’intero superiore. Con **Libero** la soglia minima è zero. Il quorum della votazione conta le schede acquisite. Per ogni quesito puoi scegliere un quorum diverso oppure usare quello della consultazione. Il quorum del quesito conta le schede con risposta, comprese le astensioni.
+
 Per ogni mozione, scegli **Favorevole / Contrario / Astenuto** per richiedere una risposta. Scegli **Favorevole / Contrario / Astenuto / Senza risposta** per consentire di saltare quel quesito. Lo scrutinio conta **Astenuto** fra le schede con risposta e riporta le omissioni a parte, anche quando la stessa scheda contiene risposte ad altri quesiti.
 
 Per consultare lo storico apri la votazione conclusa da **Consultazioni** e scegli **Elettori della votazione**. La stessa matricola può riportare un recapito diverso in un’altra consultazione.
@@ -89,6 +91,8 @@ Se correggi un recapito, controlla l’esito già registrato. Per ripetere un in
 La dashboard mostra aventi diritto, votanti unici, affluenza, scadenza e indicatori SMTP durante l’apertura. Alla scadenza il server rifiuta nuove schede e sostituzioni, anche se il worker deve ancora aggiornare lo stato. Puoi anticipare la fine con **Chiudi la consultazione** e confermare. Usa **Annulla consultazione** con una motivazione quando occorre fermare o invalidare la consultazione. La cancellazione è riservata alla bozza.
 
 Dallo stato **Chiusa**, seleziona **Pubblica lo scrutinio** per rendere disponibili i report e accodare il riepilogo via email per ogni avente diritto, anche chi non ha votato. Il riepilogo contiene il totale degli aventi diritto, le schede acquisite e i conteggi per opzione e quesito. In locale le email sono recapitate in Mailpit agli indirizzi `example.invalid`. Lo stato degli invii è disponibile nello storico.
+
+Dopo la pubblicazione, chi ha votato può riaprire il link personale per vedere i risultati aggregati. A quorum raggiunto, una mozione è **Approvata** quando i favorevoli superano la metà delle schede con risposta, astenuti inclusi. Gli esiti non validi per quorum sono grigi. Le consultazioni con quorum di voto non configurato mostrano i conteggi disponibili.
 
 **Risultati e report** contiene lo scrutinio per quesito, il CSV dei risultati e il PDF riepilogativo non firmato. Per ogni quesito verifica le schede con risposta, le schede che lo hanno lasciato vuoto e le preferenze per opzione. Nei quesiti multipli le preferenze complessive possono superare il numero di schede con risposta.
 

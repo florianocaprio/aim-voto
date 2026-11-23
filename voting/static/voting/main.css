@@ -52,6 +52,13 @@ small, .helptext { display: block; font-size: .875rem; margin-top: .2rem; }
 .stats .card { display: grid; gap: .15rem; }
 .stats strong { font-size: 2rem; letter-spacing: -.04em; line-height: 1.15; }
 .stats span { color: var(--muted); }
+.quorum-failed { border: 2px solid var(--danger); background: #fff2f0; }
+.quorum-failed h2, .outcome-rejected .outcome-label { color: var(--danger); }
+.outcome-approved { border: 2px solid #277043; }
+.outcome-approved .outcome-label { color: #235e39; }
+.outcome-rejected { border: 2px solid var(--danger); }
+.outcome-unavailable, .results-muted .card { background: #f1f3f3; border-color: #aebbbb; }
+.outcome-unavailable thead th, .results-muted thead th { background: #e1e6e5; }
 .actions, .pagination { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
 .pagination { margin-top: 1rem; }
 .row-actions { display: grid; gap: .3rem; min-width: 10.5rem; }

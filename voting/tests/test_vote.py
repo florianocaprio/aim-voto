@@ -12,6 +12,7 @@ from voting import reports, services
 from voting.forms import RomeDateTimeField
 from voting.models import (
     AuditEvent,
+    Choice,
     Election,
     ElectionDocument,
     ElectionVoter,
@@ -20,6 +21,7 @@ from voting.models import (
     SecretBallot,
     SubmissionReceipt,
     VotingCredential,
+    VotingQuorum,
 )
 
 from .support import (
@@ -45,6 +47,77 @@ class VotingViewsTests(TestCase):
 
     def preview(self, revision, option=None, client=None):
         return review(client or self.client, revision, self.question, option)
+
+    def test_voting_quorum_rounds_up_on_the_frozen_electorate(self):
+        for quorum, minimum in (
+            (VotingQuorum.FREE, 0),
+            (VotingQuorum.THIRD, 7),
+            (VotingQuorum.HALF, 10),
+            (VotingQuorum.TWO_THIRDS, 14),
+        ):
+            with self.subTest(quorum=quorum):
+                at_minimum = reports.participation_quorum(quorum, 20, minimum)
+                self.assertEqual(at_minimum["minimum"], minimum)
+                self.assertTrue(at_minimum["met"])
+                if minimum:
+                    self.assertFalse(
+                        reports.participation_quorum(quorum, 20, minimum - 1)["met"]
+                    )
+        self.assertIsNone(reports.participation_quorum("", 20, 20))
+
+    def test_outcomes_use_question_responses_and_include_abstentions_in_majority(self):
+        election = self.election
+        election.voting_quorum = VotingQuorum.HALF
+        election.save(update_fields=["voting_quorum"])
+        extra = ElectionVoter.objects.bulk_create(
+            ElectionVoter(
+                election=election,
+                external_id=f"Q-{i}",
+                first_name="Socio",
+                last_name=f"Esempio {i}",
+            )
+            for i in range(5)
+        )
+        rejected = election.questions.create(
+            text="Mozione a metà", kind=Question.Kind.MOTION
+        )
+        omitted = election.questions.create(
+            text="Mozione con quorum proprio",
+            kind=Question.Kind.MOTION,
+            voting_quorum=VotingQuorum.TWO_THIRDS,
+        )
+        options = [
+            [
+                Choice.objects.create(question=question, text=label)
+                for label in ("Favorevole", "Contrario", "Astenuto")
+            ]
+            for question in (rejected, omitted)
+        ]
+        for index, voter in enumerate((self.voter, self.other, *extra[:2])):
+            answers = {
+                str(self.question.pk): [self.options[0 if index < 3 else 2].pk],
+                str(rejected.pk): [options[0][(0, 0, 1, 2)[index]].pk],
+            }
+            if index < 3:
+                answers[str(omitted.pk)] = [options[1][0].pk]
+            NamedBallot.objects.create(voter=voter, answers=answers)
+
+        result = reports.results_with_outcomes(election)
+        self.assertEqual((result["eligible"], result["total"]), (7, 4))
+        self.assertEqual(result["quorum"]["minimum"], 4)
+        self.assertTrue(result["quorum"]["met"])
+        self.assertEqual(
+            [row["outcome_label"] for row in result["rows"]],
+            ["Approvata", "Respinta", "Quorum del quesito non raggiunto"],
+        )
+        self.assertEqual(result["rows"][1]["approval_minimum"], 3)
+        self.assertEqual(result["rows"][2]["quorum"]["counted"], 3)
+
+        election.voting_quorum = VotingQuorum.TWO_THIRDS
+        failed = reports.results_with_outcomes(election)
+        self.assertTrue(failed["quorum_failed"])
+        self.assertEqual(failed["quorum"]["minimum"], 5)
+        self.assertTrue(all(row["outcome"] == "unavailable" for row in failed["rows"]))
 
     def test_delete_published_requires_staff_published_status_and_confirmation(self):
         pk = self.election.pk
@@ -408,15 +481,28 @@ class VotingViewsTests(TestCase):
             self.client.post(self.submit_url, {"payload": payload}).status_code, 200
         )
         pending = self.preview(1, self.options[2]).context["payload"]
-        for action in ("chiudi", "scrutina"):
-            url = reverse("voting:transition", args=[self.election.pk, action])
-            self.assertEqual(self.admin.post(url, {"confirm": "yes"}).status_code, 302)
+        close = reverse("voting:transition", args=[self.election.pk, "chiudi"])
+        self.assertEqual(self.admin.post(close, {"confirm": "yes"}).status_code, 302)
+        ballot = reverse("voting:ballot")
+        waiting = self.client.get(ballot)
+        self.assertContains(waiting, "Lo scrutinio è in attesa di pubblicazione.")
+        self.assertNotContains(waiting, "Favorevole")
+        publish = reverse("voting:transition", args=[self.election.pk, "scrutina"])
+        self.assertEqual(self.admin.post(publish, {"confirm": "yes"}).status_code, 302)
         self.assertEqual(
             self.client.post(self.submit_url, {"payload": pending}).status_code, 409
         )
-        self.assertContains(
-            self.client.get(reverse("voting:ballot")), "Votazione chiusa"
-        )
+        voter = Client()
+        self.assertEqual(redeem(voter, self.voter).status_code, 200)
+        personal = voter.get(ballot)
+        self.assertContains(personal, "Votazione chiusa")
+        self.assertContains(personal, "Favorevole")
+        self.assertNotContains(personal, self.voter.external_id)
+        self.assertNotContains(personal, "Report PDF")
+        absent = Client()
+        redeem(absent, self.other)
+        self.assertNotContains(absent.get(ballot), "Favorevole")
+        self.assertEqual(Client().get(ballot).status_code, 403)
         self.assertContains(
             self.client.post(self.submit_url, {"payload": payload}), "Scheda corrente"
         )

@@ -22,11 +22,12 @@
 <div class="sections">
   <section class="card stack">
     <h2>Scheda e documenti</h2>
+    {% if election.voting_quorum %}<p>Quorum della votazione · {{ election.get_voting_quorum_display }}</p>{% endif %}
     <p>{% if election.allow_replacement %}Sostituzione consentita fino alla chiusura.{% else %}Sostituzione disabilitata.{% endif %}</p>
     <ol class="list">
       {% for question in questions %}
         <li>{% if election.status == "draft" %}<a href="{% url 'voting:question_edit' election.pk question.pk %}">{{ question.text }}</a>{% else %}{{ question.text }}{% endif %}
-          <small>{{ question.get_kind_display }}</small></li>
+          <small>{{ question.get_kind_display }}{% if question.voting_quorum %} · Quorum del quesito {{ question.get_voting_quorum_display }}{% endif %}</small></li>
       {% empty %}
         <li>Nessun quesito.</li>
       {% endfor %}

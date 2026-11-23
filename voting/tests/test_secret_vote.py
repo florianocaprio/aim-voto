@@ -137,6 +137,18 @@ class SecretVoteTests(TestCase):
         self.assertEqual(self.transition("chiudi").status_code, 302)
         self.assertEqual(self.transition("scrutina").status_code, 302)
         self.election.refresh_from_db()
+        ballot = reverse("voting:ballot")
+        self.assertContains(proxy.get(ballot), "Scrutinio pubblicato")
+        scoped = Client()
+        token = proxy_access.link(delegation, self.delegate.credential).split("#", 1)[1]
+        self.assertEqual(
+            scoped.post(reverse("voting:access"), {"token": token}).status_code, 200
+        )
+        summarized = scoped.get(proxy_path)
+        self.assertContains(summarized, "Scrutinio pubblicato")
+        self.assertContains(summarized, "Favorevole")
+        self.assertNotContains(summarized, self.grantor.external_id)
+        self.assertEqual(scoped.get(ballot).status_code, 403)
         tally = reports.tally(self.election)
         self.assertEqual(tally["blank"], 1)
         self.assertEqual(

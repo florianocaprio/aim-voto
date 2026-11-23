@@ -11,7 +11,14 @@ from PIL import Image, UnidentifiedImageError
 
 from members.importing import PHONE_FORMAT, cell_text
 
-from .models import AssemblyQuorum, Election, ElectionDocument, ElectionVoter, Question
+from .models import (
+    AssemblyQuorum,
+    Election,
+    ElectionDocument,
+    ElectionVoter,
+    Question,
+    VotingQuorum,
+)
 
 
 class RomeDateTimeField(forms.DateTimeField):
@@ -39,6 +46,13 @@ class ElectionForm(forms.ModelForm):
         help_text="Lascia vuoto per aprire manualmente.",
     )
     closes_at = RomeDateTimeField(label="Scadenza (ora di Roma)")
+    voting_quorum = forms.ChoiceField(
+        label="Quorum della votazione",
+        choices=[("", "Quorum da configurare"), *VotingQuorum.choices],
+        required=False,
+        initial=VotingQuorum.FREE,
+        help_text="La soglia si applica alla platea degli aventi diritto e si verifica sulle schede acquisite.",
+    )
 
     class Meta:
         model = Election
@@ -48,6 +62,7 @@ class ElectionForm(forms.ModelForm):
             "mode",
             "opens_at",
             "closes_at",
+            "voting_quorum",
             "allow_replacement",
             "allow_delegations",
             "require_presence",
@@ -120,6 +135,12 @@ class QuestionForm(forms.Form):
         label="Tipo",
         choices=Question.Kind.choices,
         help_text="Con la variante «Senza risposta», il socio può saltare la mozione. La scheda non entra nel conteggio delle risposte a quel quesito.",
+    )
+    voting_quorum = forms.ChoiceField(
+        label="Quorum del quesito",
+        choices=[("", "Usa il quorum della consultazione"), *VotingQuorum.choices],
+        required=False,
+        help_text="Per il quesito si contano le risposte, comprese le astensioni.",
     )
     options = forms.CharField(
         label="Opzioni, una per riga",

@@ -19,7 +19,7 @@ from reportlab.platypus import (
 )
 
 from . import secret_ballots
-from .models import VoterPresence
+from .models import Question, VoterPresence, VotingQuorum
 from .services import ballot_questions
 
 
@@ -48,6 +48,8 @@ def tally(election):
         rows.append(
             {
                 "question": question.text,
+                "kind": question.kind,
+                "voting_quorum": question.voting_quorum,
                 "answered": sum(bool(selected) for selected in selections),
                 "omitted": sum(not selected for selected in selections),
                 "proxy_answered": sum(
@@ -66,6 +68,53 @@ def tally(election):
         "blank": sum(not answer for answer, _ in ballots),
         "eligible": election.voters.count(),
     }
+
+
+def participation_quorum(rule, eligible, counted):
+    if rule not in VotingQuorum.values:
+        return None
+    if rule == VotingQuorum.FREE:
+        minimum = 0
+    else:
+        numerator, denominator = map(int, rule.split("/"))
+        minimum = (eligible * numerator + denominator - 1) // denominator
+    return {
+        "label": VotingQuorum(rule).label,
+        "met": counted >= minimum,
+        "counted": counted,
+        "minimum": minimum,
+    }
+
+
+def results_with_outcomes(election):
+    data = tally(election)
+    eligible = data["eligible"]
+    quorum = participation_quorum(election.voting_quorum, eligible, data["total"])
+    quorum_failed = quorum is not None and not quorum["met"]
+    for row in data["rows"]:
+        question_quorum = participation_quorum(
+            row["voting_quorum"] or election.voting_quorum, eligible, row["answered"]
+        )
+        row["quorum"] = question_quorum
+        row["outcome"] = "unavailable"
+        if quorum_failed:
+            row["outcome_label"] = "Esito non valido per mancato quorum della votazione"
+        elif question_quorum is None:
+            row["outcome_label"] = "Quorum non configurato"
+        elif not question_quorum["met"]:
+            row["outcome_label"] = "Quorum del quesito non raggiunto"
+        elif not row["answered"]:
+            row["outcome_label"] = "Nessuna risposta"
+        elif row["kind"] in {Question.Kind.MOTION, Question.Kind.MOTION_REQUIRED}:
+            favorable = dict(row["choices"]).get("Favorevole", 0)
+            row["approval_minimum"] = row["answered"] // 2 + 1
+            if favorable >= row["approval_minimum"]:
+                row["outcome"], row["outcome_label"] = "approved", "Approvata"
+            else:
+                row["outcome"], row["outcome_label"] = "rejected", "Respinta"
+        else:
+            row["outcome"], row["outcome_label"] = "", ""
+    return {**data, "quorum": quorum, "quorum_failed": quorum_failed}
 
 
 def ballot_summary(questions, answers):

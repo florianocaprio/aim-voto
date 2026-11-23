@@ -9,6 +9,13 @@ from django.utils import timezone
 MAX_ELECTORATE_SIZE = 2000
 
 
+class VotingQuorum(models.TextChoices):
+    FREE = "free", "Libero (nessuna soglia minima)"
+    THIRD = "1/3", "1/3 degli aventi diritto"
+    HALF = "1/2", "1/2 degli aventi diritto"
+    TWO_THIRDS = "2/3", "2/3 degli aventi diritto"
+
+
 class Election(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Bozza"
@@ -35,6 +42,7 @@ class Election(models.Model):
     allow_replacement = models.BooleanField(default=True)
     allow_delegations = models.BooleanField(default=False)
     require_presence = models.BooleanField(default=False)
+    voting_quorum = models.CharField(max_length=4, choices=VotingQuorum, blank=True)
     reminder_interval_hours = models.PositiveSmallIntegerField(default=24)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -142,6 +150,7 @@ class Question(models.Model):
     text = models.CharField(max_length=500)
     kind = models.CharField(max_length=16, choices=Kind)
     max_choices = models.PositiveSmallIntegerField(default=1)
+    voting_quorum = models.CharField(max_length=4, choices=VotingQuorum, blank=True)
 
     class Meta:
         ordering: ClassVar = ["pk"]
