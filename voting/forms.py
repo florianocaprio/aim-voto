@@ -122,7 +122,11 @@ class AssemblyQuorumForm(forms.ModelForm):
 
 class QuestionForm(forms.Form):
     text = forms.CharField(label="Testo del quesito", max_length=500)
-    kind = forms.ChoiceField(label="Tipo", choices=Question.Kind.choices)
+    kind = forms.ChoiceField(
+        label="Tipo",
+        choices=Question.Kind.choices,
+        help_text="Con la variante «Senza risposta», il socio può saltare la mozione. La scheda non entra nel conteggio delle risposte a quel quesito.",
+    )
     options = forms.CharField(
         label="Opzioni, una per riga",
         required=False,
@@ -139,7 +143,8 @@ class QuestionForm(forms.Form):
         kind = cleaned.get("kind")
         if not kind or "options" not in cleaned or "max_choices" not in cleaned:
             return cleaned
-        if kind == Question.Kind.MOTION:
+        motion = kind in {Question.Kind.MOTION, Question.Kind.MOTION_REQUIRED}
+        if motion:
             options = ["Favorevole", "Contrario", "Astenuto"]
         else:
             options = [
@@ -156,7 +161,7 @@ class QuestionForm(forms.Form):
                 )
             elif len({option.casefold() for option in options}) != len(options):
                 self.add_error("options", "Le opzioni devono essere distinte.")
-        if kind in {Question.Kind.MOTION, Question.Kind.SINGLE}:
+        if motion or kind == Question.Kind.SINGLE:
             cleaned["max_choices"] = 1
         elif cleaned["max_choices"] > len(options):
             self.add_error("max_choices", "Il limite supera il numero delle opzioni.")

@@ -50,7 +50,6 @@
     {% else %}
       <div class="stack">
     {% endif %}
-      <p>Puoi lasciare un quesito senza risposta. Se li lasci tutti vuoti e confermi, registri una scheda bianca.</p>
       {% for question, selected in questions %}
         <fieldset class="card options" {% if preview %}disabled{% endif %}>
           <legend>{{ question.text }}</legend>
@@ -61,9 +60,11 @@
             {% endfor %}
           {% else %}
             {% for option in question.choices.all %}
-              <label><input type="radio" name="q{{ question.pk }}" value="{{ option.pk }}" {% if option.pk in selected %}checked{% endif %}> {{ option.text }}</label>
+              <label><input type="radio" name="q{{ question.pk }}" value="{{ option.pk }}" {% if option.pk in selected %}checked{% endif %} {% if question.requires_answer %}required{% endif %}> {{ option.text }}</label>
             {% endfor %}
-            <label><input type="radio" name="q{{ question.pk }}" value=""> Lascia senza risposta</label>
+            {% if not question.requires_answer %}
+              <label><input type="radio" name="q{{ question.pk }}" value=""> Senza risposta</label>
+            {% endif %}
           {% endif %}
         </fieldset>
       {% empty %}<p>Nessun quesito configurato.</p>{% endfor %}

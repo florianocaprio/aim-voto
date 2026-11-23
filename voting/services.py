@@ -248,8 +248,8 @@ def validate_answers(questions: list[Question], answers):
             "La scheda contiene un quesito estraneo alla consultazione."
         )
     normalized = {}
-    for question_id, values in answers.items():
-        question = allowed[question_id]
+    for question_id, question in allowed.items():
+        values = answers.get(question_id, [])
         options = {choice.pk for choice in question.choices.all()}
         if (
             not isinstance(values, list)
@@ -262,6 +262,10 @@ def validate_answers(questions: list[Question], answers):
             )
         if values:
             normalized[question_id] = sorted(values)
+        elif question.requires_answer:
+            raise ValidationError(
+                f"Seleziona una risposta per il quesito «{question.text}»."
+            )
     return normalized
 
 

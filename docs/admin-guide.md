@@ -28,6 +28,8 @@ L’anteprima è accessibile dal solo operatore che ha caricato il file e scade 
 
 Nel menu **Modalità di voto** scegli **Palese (nominativo)** oppure **Segreto**. In entrambe le modalità puoi consentire la delega. La sostituzione è disponibile nel palese e il voto segreto è definitivo dalla conferma. All’apertura si congelano quesiti, opzioni, modalità e platea. L’apertura e l’accodamento degli inviti richiedono conferme distinte.
 
+Per ogni mozione, scegli **Favorevole / Contrario / Astenuto** per richiedere una risposta. Scegli **Favorevole / Contrario / Astenuto / Senza risposta** per consentire di saltare quel quesito. Lo scrutinio conta **Astenuto** fra le schede con risposta e riporta le omissioni a parte, anche quando la stessa scheda contiene risposte ad altri quesiti.
+
 Per consultare lo storico apri la votazione conclusa da **Consultazioni** e scegli **Elettori della votazione**. La stessa matricola può riportare un recapito diverso in un’altra consultazione.
 
 ## Assistere un elettore

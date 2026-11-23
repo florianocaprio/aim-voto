@@ -8,13 +8,14 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from voting import services
+from voting import reports, services
 from voting.forms import RomeDateTimeField
 from voting.models import (
     AuditEvent,
     Election,
     ElectionVoter,
     NamedBallot,
+    Question,
     SubmissionReceipt,
 )
 
@@ -41,6 +42,80 @@ class VotingViewsTests(TestCase):
 
     def preview(self, revision, option=None, client=None):
         return review(client or self.client, revision, self.question, option)
+
+    def test_motion_can_require_a_response_without_counting_omissions_on_other_questions(
+        self,
+    ):
+        election = Election.objects.create(
+            title="Consultazione con due mozioni",
+            created_by=self.actor,
+            closes_at=timezone.now() + timedelta(days=1),
+        )
+        add_question = reverse("voting:question_add", args=[election.pk])
+        for text, kind in (
+            ("Approvare la prima mozione?", Question.Kind.MOTION_REQUIRED),
+            ("Approvare la seconda mozione?", Question.Kind.MOTION),
+        ):
+            response = self.admin.post(
+                add_question, {"text": text, "kind": kind, "max_choices": 2}
+            )
+            self.assertEqual(response.status_code, 302)
+        required, optional = election.questions.all()
+        for question in (required, optional):
+            self.assertEqual(question.max_choices, 1)
+            self.assertEqual(
+                list(question.choices.values_list("text", flat=True)),
+                ["Favorevole", "Contrario", "Astenuto"],
+            )
+
+        first, second = open_election(election, [self.voter.member, self.other.member])
+        redeem(self.client, first)
+        ballot = reverse("voting:ballot")
+        page = self.client.get(ballot)
+        self.assertNotContains(page, f'name="q{required.pk}" value=""')
+        self.assertContains(page, f'name="q{optional.pk}" value=""')
+        for data in ({}, {f"q{required.pk}": ""}):
+            invalid = self.client.post(ballot, {"revision": 0, **data})
+            self.assertContains(
+                invalid, "Seleziona una risposta per il quesito", status_code=400
+            )
+        with self.assertRaises(ValidationError):
+            services.record_ballot(
+                first.pk,
+                election.pk,
+                first.credential.version,
+                uuid4(),
+                0,
+                {str(optional.pk): [optional.choices.first().pk]},
+            )
+
+        other = Client()
+        redeem(other, second)
+        for client, optional_answer in (
+            (self.client, ""),
+            (other, optional.choices.get(text="Astenuto").pk),
+        ):
+            preview = client.post(
+                ballot,
+                {
+                    "revision": 0,
+                    f"q{required.pk}": required.choices.first().pk,
+                    f"q{optional.pk}": optional_answer,
+                },
+            )
+            self.assertEqual(
+                client.post(
+                    self.submit_url, {"payload": preview.context["payload"]}
+                ).status_code,
+                200,
+            )
+        result = reports.tally(election)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(
+            [(row["answered"], row["omitted"]) for row in result["rows"]],
+            [(2, 0), (1, 1)],
+        )
+        self.assertEqual(dict(result["rows"][1]["choices"])["Astenuto"], 1)
 
     def test_redeeming_and_previewing_never_records_or_consumes_access(self):
         self.assertEqual(self.client.get(reverse("voting:access")).status_code, 200)

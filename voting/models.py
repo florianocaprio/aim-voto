@@ -129,7 +129,8 @@ class AssemblyQuorum(models.Model):
 
 class Question(models.Model):
     class Kind(models.TextChoices):
-        MOTION = "motion", "Favorevole / Contrario / Astenuto"
+        MOTION_REQUIRED = "motion_req", "Favorevole / Contrario / Astenuto"
+        MOTION = "motion", "Favorevole / Contrario / Astenuto / Senza risposta"
         SINGLE = "single", "Scelta singola"
         MULTIPLE = "multiple", "Scelta multipla"
         CANDIDATES = "candidates", "Candidati"
@@ -143,6 +144,10 @@ class Question(models.Model):
 
     class Meta:
         ordering: ClassVar = ["pk"]
+
+    @property
+    def requires_answer(self):
+        return self.kind == self.Kind.MOTION_REQUIRED
 
 
 class Choice(models.Model):
