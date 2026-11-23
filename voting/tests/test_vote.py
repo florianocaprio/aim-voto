@@ -265,6 +265,14 @@ class VotingViewsTests(TestCase):
 
     def test_secret_refused_by_form_and_database(self):
         new_url = reverse("voting:create")
+        form = self.admin.get(new_url)
+        self.assertContains(form, "Modalità di voto")
+        self.assertContains(
+            form,
+            '<option value="secret" disabled>Segreto (non ancora disponibile)</option>',
+            html=True,
+        )
+        self.assertNotContains(form, "Voto segreto · In preparazione")
         response = self.admin.post(
             new_url,
             {
@@ -273,7 +281,7 @@ class VotingViewsTests(TestCase):
                 "closes_at": "2035-01-01T10:00",
             },
         )
-        self.assertContains(response, "Voto segreto")
+        self.assertIn("mode", response.context["form"].errors)
         self.assertFalse(Election.objects.filter(title="Titolo").exists())
         with self.assertRaises(IntegrityError), transaction.atomic():
             Election.objects.filter(pk=self.election.pk).update(mode="secret")
