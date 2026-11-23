@@ -9,6 +9,11 @@ urlpatterns = [
     path("scheda/", views.ballot, name="ballot"),
     path("scheda/presenza-e-deleghe/", assembly_views.voter_assembly, name="assembly"),
     path(
+        "scheda/deleghe/presenta/",
+        assembly_views.submit_received_delegation,
+        name="received_delegation",
+    ),
+    path(
         "scheda/deleghe/<int:delegation_pk>/", views.proxy_ballot, name="proxy_ballot"
     ),
     path(
@@ -30,6 +35,11 @@ urlpatterns = [
         "gestione/<int:pk>/presenze.csv",
         assembly_views.presence_csv,
         name="presence_csv",
+    ),
+    path(
+        "gestione/<int:pk>/deleghe/<int:delegation_pk>/documento/",
+        assembly_views.download_delegation_attachment,
+        name="delegation_attachment",
     ),
     path(
         "gestione/<int:pk>/deleghe/<int:delegation_pk>/<slug:action>/",

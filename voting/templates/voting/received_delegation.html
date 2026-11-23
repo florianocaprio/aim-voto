@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Presenta una delega ricevuta{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'voting:assembly' %}">Presenza e deleghe</a>
+<div class="page-heading"><div><p class="mode">{{ election.title }}</p><h1>Presenta una delega ricevuta</h1></div></div>
+<section class="card stack narrow">
+  <p>Indica il socio per conto del quale vuoi votare. Lo staff verifica la domanda compilata e, dopo l’approvazione, ti invia un link dedicato.</p>
+  <p class="muted">Deleghe riservate o approvate {{ reserved }} su {{ limit }}.</p>
+  <form method="post" enctype="multipart/form-data" class="stack">
+    {% csrf_token %}
+    {{ form.as_div }}
+    <div><button class="button">Invia richiesta allo staff</button></div>
+  </form>
+</section>
+{% endblock %}

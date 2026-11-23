@@ -15,7 +15,7 @@ if (redemption) {
       .then(async (response) => {
         const result = await response.json();
         if (response.ok) {
-          window.location.replace(redemption.dataset.ballot);
+          window.location.replace(result.ballot_url || redemption.dataset.ballot);
         } else {
           status.textContent = result.error || "Apri di nuovo il link personale.";
         }

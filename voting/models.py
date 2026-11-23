@@ -229,6 +229,15 @@ class Delegation(models.Model):
         ]
 
 
+class DelegationAttachment(models.Model):
+    delegation = models.OneToOneField(
+        Delegation, on_delete=models.CASCADE, related_name="attachment"
+    )
+    filename = models.CharField(max_length=150)
+    mime_type = models.CharField(max_length=20)
+    content = models.BinaryField(editable=False)
+
+
 class SubmissionReceipt(models.Model):
     voter = models.ForeignKey(
         ElectionVoter, on_delete=models.PROTECT, related_name="receipts"

@@ -9,7 +9,7 @@
     <p class="muted">Scadenza {{ election.closes_at|date:"d/m/Y H:i T" }} · Europe/Rome</p>
   </div>
   <div class="alert">La scheda è associata al socio. {% if voter %}<strong>{{ voter.first_name }} {{ voter.last_name }}</strong>{% endif %}</div>
-  {% if voter %}
+  {% if voter and not scoped_link %}
     <div><a class="button secondary" href="{% url 'voting:assembly' %}">{% if election.allow_delegations %}Presenza e deleghe{% else %}Conferma presenza{% endif %}</a></div>
   {% endif %}
   {% if delegation %}<p>Stai votando per conto di {{ voter.first_name }} {{ voter.last_name }} con una delega approvata.</p>{% endif %}
